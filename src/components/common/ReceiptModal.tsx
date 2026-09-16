@@ -102,21 +102,31 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             {/* Header / Company Info */}
             <div className="text-center pb-3 border-b border-dashed border-slate-400 mb-3">
               {settings.logo && (
-                <img
-                  src={settings.logo}
-                  alt="Logo"
-                  className="w-12 h-12 mx-auto mb-2 object-contain"
-                />
+                <div className="flex justify-center mb-2">
+                  <img
+                    src={settings.logo}
+                    alt={settings.companyName || 'Logo'}
+                    className="max-h-16 max-w-[140px] w-auto h-auto object-contain mx-auto print:max-h-14"
+                  />
+                </div>
               )}
-              <h1 className="font-bold text-sm uppercase tracking-wide">
-                {settings.companyName || 'ESTOQUE PRO'}
+              <h1 className="font-bold text-sm uppercase tracking-wide text-slate-950">
+                {settings.companyName || settings.name || 'ESTOQUE PRO'}
               </h1>
-              {settings.document && <p className="text-[11px] text-slate-600">CNPJ/CPF: {settings.document}</p>}
-              {settings.address && <p className="text-[10px] text-slate-600">{settings.address}</p>}
-              {settings.phone && <p className="text-[10px] text-slate-600">Tel: {settings.phone}</p>}
+              {settings.document && (
+                <p className="text-[11px] font-mono font-medium text-slate-700">
+                  CNPJ: {settings.document}
+                </p>
+              )}
+              {settings.address && (
+                <p className="text-[10px] text-slate-600 leading-tight mt-0.5">{settings.address}</p>
+              )}
+              {settings.phone && (
+                <p className="text-[10px] text-slate-600">Tel: {settings.phone}</p>
+              )}
               <div className="mt-2 pt-2 border-t border-dotted border-slate-300 text-[11px]">
-                <p className="font-semibold">CUPOM NÃO FISCAL</p>
-                <p>Venda Nº: <strong className="text-black">#{sale.saleNumber}</strong></p>
+                <p className="font-bold text-slate-900 tracking-wider">COMPROVANTE DE VENDA / NOTA</p>
+                <p>Venda Nº: <strong className="text-black font-mono">#{sale.saleNumber}</strong></p>
                 <p>Data: {sale.date} - Hora: {sale.time}</p>
                 <p>Operador: {sale.user}</p>
               </div>

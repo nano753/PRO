@@ -12,19 +12,29 @@ import {
   CheckCircle2,
   AlertTriangle,
   FileSpreadsheet,
+  Eye,
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import { backupService } from '../services/backupService';
 import { databaseService } from '../services/databaseService';
 import { CompanySettings } from '../types';
+import { CompanyLogoUploader } from '../components/common/CompanyLogoUploader';
+import {
+  formatCNPJ,
+  formatCNPJOrCPF,
+  formatPhone,
+  validateCNPJ,
+  isValidCNPJ,
+} from '../utils/formatters';
+import { DEFAULT_SETTINGS } from '../database/initialData';
 
 export const SettingsPage: React.FC = () => {
   const { companySettings, updateCompanySettings, resetToDemoData, showToast } = useApp();
   const { hasPermission } = useAuth();
 
   // Settings form state
-  const [formData, setFormData] = useState<CompanySettings>(companySettings);
+  const [formData, setFormData] = useState<CompanySettings>(companySettings || DEFAULT_SETTINGS);
   const [storageUsage, setStorageUsage] = useState<string>('Calculando...');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -57,10 +67,18 @@ export const SettingsPage: React.FC = () => {
 
   const handleSaveCompany = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validação rigorosa de CNPJ para garantir consistência dos dados fiscais
+    const cnpjCheck = validateCNPJ(formData.document);
+    if (!cnpjCheck.isValid) {
+      showToast(`CNPJ inválido: ${cnpjCheck.message}. Por favor, informe um CNPJ válido.`, 'error');
+      return;
+    }
+
     try {
       setIsSaving(true);
       await updateCompanySettings(formData);
-      showToast('Configurações da empresa salvas com sucesso!', 'success');
+      showToast('Configurações e dados fiscais da empresa salvos com sucesso!', 'success');
     } catch (err) {
       showToast((err as Error).message || 'Erro ao salvar configurações.', 'error');
     } finally {
@@ -145,7 +163,15 @@ export const SettingsPage: React.FC = () => {
           </div>
         </div>
 
-        <form onSubmit={handleSaveCompany} className="space-y-4">
+        <form onSubmit={handleSaveCompany} className="space-y-6">
+          {/* Logo / Company Photo Upload */}
+          <CompanyLogoUploader
+            value={formData.logo || ''}
+            onChange={logo => setFormData(prev => ({ ...prev, logo }))}
+            label="Foto / Logotipo da Empresa"
+            sublabel="Aparecerá no cabeçalho dos cupons de venda e na barra lateral do sistema."
+          />
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
@@ -154,33 +180,91 @@ export const SettingsPage: React.FC = () => {
               <input
                 type="text"
                 required
-                value={formData.name}
-                onChange={e => setFormData({ ...formData, name: e.target.value })}
+                value={formData.companyName || formData.name || ''}
+                onChange={e =>
+                  setFormData({
+                    ...formData,
+                    companyName: e.target.value,
+                    name: e.target.value,
+                  })
+                }
+                placeholder="Ex: Supermercado Aliança Ltda"
                 className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-hidden focus:border-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                CNPJ ou CPF *
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-300">
+                  CNPJ da Empresa *
+                </label>
+                {formData.document && (
+                  <span
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                      isValidCNPJ(formData.document)
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                        : formData.document.replace(/\D/g, '').length === 14
+                        ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                        : 'bg-slate-800 text-slate-400 border border-slate-700'
+                    }`}
+                  >
+                    {isValidCNPJ(formData.document) ? (
+                      <>
+                        <CheckCircle2 className="w-3 h-3" />
+                        CNPJ Válido
+                      </>
+                    ) : formData.document.replace(/\D/g, '').length === 14 ? (
+                      <>
+                        <AlertTriangle className="w-3 h-3" />
+                        CNPJ Inválido
+                      </>
+                    ) : (
+                      `${formData.document.replace(/\D/g, '').length}/14 dígitos`
+                    )}
+                  </span>
+                )}
+              </div>
               <input
                 type="text"
                 required
-                value={formData.document}
-                onChange={e => setFormData({ ...formData, document: e.target.value })}
-                className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-sm font-mono text-white focus:outline-hidden focus:border-blue-500"
+                value={formData.document || ''}
+                onChange={e =>
+                  setFormData({
+                    ...formData,
+                    document: formatCNPJ(e.target.value),
+                  })
+                }
+                placeholder="00.000.000/0000-00"
+                className={`w-full px-3 py-2 rounded-xl bg-slate-950 border text-sm font-mono text-white transition focus:outline-hidden ${
+                  isValidCNPJ(formData.document)
+                    ? 'border-emerald-500/60 focus:border-emerald-500'
+                    : formData.document && formData.document.replace(/\D/g, '').length === 14
+                    ? 'border-rose-500/70 focus:border-rose-500'
+                    : 'border-slate-700 focus:border-blue-500'
+                }`}
               />
+              {formData.document && !isValidCNPJ(formData.document) && formData.document.replace(/\D/g, '').length === 14 && (
+                <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  Dígitos verificadores inválidos perante a Receita Federal.
+                </p>
+              )}
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Telefone / WhatsApp
+                Telefone / WhatsApp Comercial
               </label>
               <input
                 type="text"
-                value={formData.phone}
-                onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                value={formData.phone || ''}
+                onChange={e =>
+                  setFormData({
+                    ...formData,
+                    phone: formatPhone(e.target.value),
+                  })
+                }
+                placeholder="(00) 00000-0000"
                 className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-hidden focus:border-blue-500"
               />
             </div>
@@ -189,8 +273,9 @@ export const SettingsPage: React.FC = () => {
               <label className="block text-xs font-semibold text-slate-300 mb-1">E-mail</label>
               <input
                 type="email"
-                value={formData.email}
+                value={formData.email || ''}
                 onChange={e => setFormData({ ...formData, email: e.target.value })}
+                placeholder="contato@empresa.com.br"
                 className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-hidden focus:border-blue-500"
               />
             </div>
@@ -201,7 +286,7 @@ export const SettingsPage: React.FC = () => {
               </label>
               <input
                 type="text"
-                value={formData.address}
+                value={formData.address || ''}
                 onChange={e => setFormData({ ...formData, address: e.target.value })}
                 placeholder="Rua, Número, Bairro, Cidade - UF"
                 className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-hidden focus:border-blue-500"
@@ -214,7 +299,7 @@ export const SettingsPage: React.FC = () => {
               </label>
               <input
                 type="text"
-                value={formData.receiptFooterMessage}
+                value={formData.receiptFooterMessage || ''}
                 onChange={e => setFormData({ ...formData, receiptFooterMessage: e.target.value })}
                 placeholder="Ex: Obrigado pela preferência! Volte sempre!"
                 className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-hidden focus:border-blue-500"
@@ -222,11 +307,50 @@ export const SettingsPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="pt-3 flex justify-end">
+          {/* Live Receipt Header Simulator */}
+          <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
+            <div className="flex items-center gap-2 mb-3 text-xs font-semibold text-slate-400">
+              <Eye className="w-4 h-4 text-blue-400" />
+              <span>Pré-visualização do Cabeçalho da Nota / Cupom</span>
+            </div>
+
+            <div className="max-w-sm mx-auto bg-white text-slate-900 rounded-lg p-4 font-mono text-center shadow-md border border-slate-200">
+              {formData.logo ? (
+                <div className="flex justify-center mb-2">
+                  <img
+                    src={formData.logo}
+                    alt="Logo"
+                    className="max-h-14 max-w-[120px] object-contain mx-auto"
+                  />
+                </div>
+              ) : (
+                <div className="w-10 h-10 rounded bg-slate-100 border border-slate-300 flex items-center justify-center text-slate-400 text-xs mx-auto mb-2 font-sans font-bold">
+                  LOGO
+                </div>
+              )}
+              <h3 className="font-bold text-xs uppercase tracking-wide">
+                {formData.companyName || formData.name || 'NOME DA EMPRESA'}
+              </h3>
+              <p className="text-[10px] text-slate-600 font-semibold mt-0.5">
+                CNPJ: {formData.document || '00.000.000/0000-00'}
+              </p>
+              {formData.address && (
+                <p className="text-[9px] text-slate-500 leading-tight mt-0.5">{formData.address}</p>
+              )}
+              {formData.phone && (
+                <p className="text-[9px] text-slate-500">Tel: {formData.phone}</p>
+              )}
+              <div className="mt-2 pt-1 border-t border-dashed border-slate-300 text-[9px] text-slate-500">
+                COMPROVANTE DE VENDA / NOTA
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-2 flex justify-end">
             <button
               type="submit"
               disabled={isSaving}
-              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs md:text-sm shadow-md shadow-blue-600/20 transition"
+              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs md:text-sm shadow-md shadow-blue-600/20 transition cursor-pointer"
             >
               {isSaving ? 'Salvando...' : 'Salvar Alterações da Loja'}
             </button>

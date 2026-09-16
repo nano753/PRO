@@ -12,13 +12,16 @@ export interface ToastMessage {
 
 interface AppContextType {
   settings: CompanySettings;
+  companySettings: CompanySettings;
   updateSettings: (newSettings: Partial<CompanySettings>) => Promise<void>;
+  updateCompanySettings: (newSettings: Partial<CompanySettings>) => Promise<void>;
   activeCashRegister: CashRegister | null;
   refreshCashRegister: () => Promise<void>;
   showDemoPrompt: boolean;
   setShowDemoPrompt: (show: boolean) => void;
   loadDemoData: () => Promise<void>;
   skipDemoData: () => Promise<void>;
+  resetToDemoData: () => Promise<void>;
   toasts: ToastMessage[];
   showToast: (message: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
   removeToast: (id: string) => void;
@@ -35,19 +38,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   // Load initial settings and verify if first-run check needed
+  const reloadSettings = async () => {
+    try {
+      const savedSettings = await databaseService.getById<CompanySettings>('settings', 'main');
+      if (savedSettings) {
+        // Ensure name and companyName are in sync
+        const synced = {
+          ...savedSettings,
+          name: savedSettings.companyName || savedSettings.name || 'ESTOQUE PRO',
+          companyName: savedSettings.companyName || savedSettings.name || 'ESTOQUE PRO',
+        };
+        setSettings(synced);
+        if (synced.theme === 'dark') {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      }
+    } catch (err) {
+      console.error('Error reloading settings:', err);
+    }
+  };
+
   useEffect(() => {
     const init = async () => {
       try {
-        const savedSettings = await databaseService.getById<CompanySettings>('settings', 'main');
-        if (savedSettings) {
-          setSettings(savedSettings);
-          // Apply theme to document
-          if (savedSettings.theme === 'dark') {
-            document.documentElement.classList.add('dark');
-          } else {
-            document.documentElement.classList.remove('dark');
-          }
-        }
+        await reloadSettings();
 
         // Check active cash
         const active = await cashService.getActiveRegister();
@@ -64,6 +80,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     };
     init();
+
+    const handleDataChanged = () => {
+      reloadSettings();
+      refreshCashRegister();
+    };
+
+    window.addEventListener('estoque_data_changed', handleDataChanged);
+    return () => window.removeEventListener('estoque_data_changed', handleDataChanged);
   }, []);
 
   const refreshCashRegister = async () => {
@@ -76,9 +100,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateSettings = async (newSettings: Partial<CompanySettings>) => {
+    const cleanName = newSettings.companyName || newSettings.name || settings.companyName || settings.name || '';
     const updated: CompanySettings = {
       ...settings,
       ...newSettings,
+      name: cleanName,
+      companyName: cleanName,
       pdv: {
         ...settings.pdv,
         ...(newSettings.pdv || {}),
@@ -158,13 +185,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider
       value={{
         settings,
+        companySettings: settings,
         updateSettings,
+        updateCompanySettings: updateSettings,
         activeCashRegister,
         refreshCashRegister,
         showDemoPrompt,
         setShowDemoPrompt,
         loadDemoData,
         skipDemoData,
+        resetToDemoData: loadDemoData,
         toasts,
         showToast,
         removeToast,

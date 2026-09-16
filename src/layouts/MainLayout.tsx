@@ -102,12 +102,22 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
       {/* Mobile Top Header */}
       <header className="md:hidden flex items-center justify-between px-4 py-3 bg-slate-900 border-b border-slate-800 sticky top-0 z-40 print:hidden">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shadow-xs">
-            EP
-          </div>
+          {settings.logo ? (
+            <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center p-1 overflow-hidden">
+              <img
+                src={settings.logo}
+                alt={settings.companyName || 'Logo'}
+                className="w-full h-full object-contain"
+              />
+            </div>
+          ) : (
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shadow-xs">
+              EP
+            </div>
+          )}
           <div>
             <h1 className="font-bold text-sm tracking-tight text-white leading-none">
-              {settings.companyName || 'ESTOQUE PRO'}
+              {settings.companyName || settings.name || 'ESTOQUE PRO'}
             </h1>
             <span className="text-[10px] text-slate-400">PDV & Estoque 100% Offline</span>
           </div>
@@ -145,14 +155,26 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         {/* Brand Area */}
         <div className="p-5 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-linear-to-br from-blue-600 to-indigo-700 flex items-center justify-center font-bold text-white text-lg shadow-md shadow-blue-500/20">
-              EP
-            </div>
+            {settings.logo ? (
+              <div className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center p-1 overflow-hidden shadow-md shadow-black/30">
+                <img
+                  src={settings.logo}
+                  alt={settings.companyName || 'Logo'}
+                  className="w-full h-full object-contain"
+                />
+              </div>
+            ) : (
+              <div className="w-10 h-10 rounded-xl bg-linear-to-br from-blue-600 to-indigo-700 flex items-center justify-center font-bold text-white text-lg shadow-md shadow-blue-500/20">
+                EP
+              </div>
+            )}
             <div className="overflow-hidden">
               <h1 className="font-bold text-base tracking-tight text-white truncate">
-                {settings.companyName || 'ESTOQUE PRO'}
+                {settings.companyName || settings.name || 'ESTOQUE PRO'}
               </h1>
-              <p className="text-[11px] text-blue-400 font-medium">PDV + Estoque + Caixa</p>
+              <p className="text-[11px] text-blue-400 font-medium truncate">
+                {settings.document ? `CNPJ: ${settings.document}` : 'PDV + Estoque + Caixa'}
+              </p>
             </div>
           </div>
           <button

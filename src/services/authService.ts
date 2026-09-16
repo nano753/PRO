@@ -1,6 +1,8 @@
 import { databaseService } from './databaseService';
 import { hashPassword, verifyPassword } from '../utils/crypto';
-import { Permission, User, UserRole } from '../types';
+import { CompanySettings, Permission, User, UserRole } from '../types';
+import { DEFAULT_SETTINGS } from '../database/initialData';
+import { isValidCNPJ } from '../utils/formatters';
 
 const SESSION_KEY = 'estoque_pro_current_user_id';
 
@@ -63,9 +65,7 @@ export const authService = {
   async getCurrentUser(): Promise<User | null> {
     const userId = localStorage.getItem(SESSION_KEY);
     if (!userId) {
-      // Check if admin exists to auto-select if fresh
-      const users = await databaseService.getAll<User>('users');
-      return users[0] || null;
+      return null;
     }
     const user = await databaseService.getById<User>('users', userId);
     return user || null;
@@ -73,6 +73,89 @@ export const authService = {
 
   logout(): void {
     localStorage.removeItem(SESSION_KEY);
+  },
+
+  async registerCompanyAndAdmin(data: {
+    companyName: string;
+    document: string;
+    logo?: string;
+    phone?: string;
+    address?: string;
+    adminName: string;
+    adminUsername: string;
+    adminPassword: string;
+  }): Promise<{ user: User; settings: CompanySettings }> {
+    const cleanCompanyName = data.companyName.trim();
+    const cleanDocument = data.document.trim();
+    const cleanAdminName = data.adminName.trim();
+    const cleanAdminUsername = data.adminUsername.trim().toLowerCase();
+
+    if (!cleanCompanyName) {
+      throw new Error('O nome da empresa é obrigatório.');
+    }
+    if (!cleanDocument) {
+      throw new Error('O CNPJ da empresa é obrigatório.');
+    }
+    if (!isValidCNPJ(cleanDocument)) {
+      throw new Error('O CNPJ informado é inválido perante os dígitos verificadores da Receita Federal.');
+    }
+    if (!cleanAdminName || !cleanAdminUsername) {
+      throw new Error('Nome e usuário do administrador são obrigatórios.');
+    }
+    if (data.adminPassword.length < 4) {
+      throw new Error('A senha deve ter pelo menos 4 caracteres.');
+    }
+
+    // 1. Create or update the administrator user
+    const users = await databaseService.getAll<User>('users');
+    let adminUser = users.find(u => u.username.toLowerCase() === cleanAdminUsername);
+    const passwordHash = await hashPassword(data.adminPassword);
+
+    if (adminUser) {
+      adminUser = {
+        ...adminUser,
+        name: cleanAdminName,
+        passwordHash,
+        role: 'ADMINISTRADOR',
+        permissions: ALL_PERMISSIONS,
+        status: 'ativo',
+      };
+      await databaseService.save<User>('users', adminUser);
+    } else {
+      adminUser = {
+        id: `usr-${Date.now()}`,
+        name: cleanAdminName,
+        username: cleanAdminUsername,
+        passwordHash,
+        role: 'ADMINISTRADOR',
+        permissions: ALL_PERMISSIONS,
+        status: 'ativo',
+        createdAt: new Date().toISOString(),
+      };
+      await databaseService.save<User>('users', adminUser);
+    }
+
+    // 2. Save company settings with name, CNPJ and logo
+    const existingSettings =
+      (await databaseService.getById<CompanySettings>('settings', 'main')) || DEFAULT_SETTINGS;
+
+    const newSettings: CompanySettings = {
+      ...existingSettings,
+      id: 'main',
+      companyName: cleanCompanyName,
+      name: cleanCompanyName,
+      document: cleanDocument,
+      logo: data.logo || existingSettings.logo || '',
+      phone: data.phone?.trim() || existingSettings.phone || '',
+      address: data.address?.trim() || existingSettings.address || '',
+    };
+
+    await databaseService.save<CompanySettings>('settings', newSettings);
+
+    // 3. Establish active session
+    localStorage.setItem(SESSION_KEY, adminUser.id);
+
+    return { user: adminUser, settings: newSettings };
   },
 
   async getUsers(): Promise<User[]> {

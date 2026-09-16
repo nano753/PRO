@@ -7,6 +7,16 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<void>;
+  registerCompanyAndAdmin: (data: {
+    companyName: string;
+    document: string;
+    logo?: string;
+    phone?: string;
+    address?: string;
+    adminName: string;
+    adminUsername: string;
+    adminPassword: string;
+  }) => Promise<void>;
   logout: () => void;
   hasPermission: (permission: Permission) => boolean;
   canManageUsers: boolean;
@@ -40,6 +50,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(loggedIn);
   };
 
+  const registerCompanyAndAdmin = async (data: {
+    companyName: string;
+    document: string;
+    logo?: string;
+    phone?: string;
+    address?: string;
+    adminName: string;
+    adminUsername: string;
+    adminPassword: string;
+  }) => {
+    const result = await authService.registerCompanyAndAdmin(data);
+    setUser(result.user);
+    // Broadcast data change event so AppContext updates its settings immediately
+    window.dispatchEvent(new CustomEvent('estoque_data_changed'));
+  };
+
   const logout = () => {
     authService.logout();
     setUser(null);
@@ -58,6 +84,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: !!user,
         isLoading,
         login,
+        registerCompanyAndAdmin,
         logout,
         hasPermission,
         canManageUsers,

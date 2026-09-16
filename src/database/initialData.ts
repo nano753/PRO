@@ -38,7 +38,7 @@ export const DEFAULT_SETTINGS: CompanySettings = {
   logo: '',
   address: 'Av. Comercial, 1250 - Centro',
   phone: '(11) 98765-4321',
-  document: '12.345.678/0001-90',
+  document: '12.345.678/0001-95',
   currency: 'R$',
   defaultMinStock: 5,
   theme: 'dark',
