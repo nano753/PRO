@@ -9,6 +9,7 @@ import {
   Product,
   Sale,
   SaleItem,
+  CompanySettings,
 } from '../types';
 
 export interface CreateSaleInput {
@@ -57,6 +58,8 @@ export const salesService = {
     }
 
     // 3. Validate Stock for all items
+    const settings = await databaseService.getById<CompanySettings>('settings', 'main');
+    const blockOutOfStock = settings?.pdv?.blockOutOfStock ?? false;
     const productsToUpdate: { product: Product; newStock: number; soldQty: number }[] = [];
 
     for (const item of input.items) {
@@ -65,7 +68,7 @@ export const salesService = {
         throw new Error(`Produto "${item.productName}" não foi encontrado no sistema.`);
       }
 
-      if (product.currentStock < item.quantity) {
+      if (blockOutOfStock && product.currentStock < item.quantity) {
         throw new Error(
           `Estoque insuficiente para "${product.name}". Disponível: ${product.currentStock} ${product.unit}, Solicitado: ${item.quantity} ${product.unit}.`
         );

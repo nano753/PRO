@@ -228,6 +228,7 @@ export interface CompanySettings {
     barcodeAudioBeep: boolean;
     printReceiptAutomatically: boolean;
     printerWidth: '58mm' | '80mm' | 'A4';
+    blockOutOfStock?: boolean;
   };
 }
 

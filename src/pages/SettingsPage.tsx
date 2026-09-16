@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   FileSpreadsheet,
   Eye,
+  Barcode,
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -408,6 +409,109 @@ export const SettingsPage: React.FC = () => {
               Se habilitado, a caixa de diálogo de impressão do navegador abrirá de imediato.
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* Section 3: PDV & Barcode Scanner Preferences */}
+      <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 space-y-6">
+        <div className="flex items-center gap-3 pb-4 border-b border-slate-800">
+          <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
+            <Barcode className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-white">Ponto de Venda (PDV) & Leitor de Código de Barras</h2>
+            <p className="text-xs text-slate-400">
+              Personalize o comportamento do leitor USB/Bluetooth e regras de estoque no caixa.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 transition">
+            <input
+              type="checkbox"
+              checked={formData.pdv?.barcodeAudioBeep ?? true}
+              onChange={e =>
+                setFormData({
+                  ...formData,
+                  pdv: {
+                    ...(formData.pdv || DEFAULT_SETTINGS.pdv),
+                    barcodeAudioBeep: e.target.checked,
+                  },
+                })
+              }
+              className="mt-0.5 rounded text-blue-600 focus:ring-0"
+            />
+            <div>
+              <span className="text-sm font-semibold text-white block">
+                Bipe Sonoro ao Escanear Produtos
+              </span>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Emite um som de confirmação característico a cada leitura bem-sucedida de código de barras ou SKU.
+              </p>
+            </div>
+          </label>
+
+          <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 transition">
+            <input
+              type="checkbox"
+              checked={formData.pdv?.blockOutOfStock ?? false}
+              onChange={e =>
+                setFormData({
+                  ...formData,
+                  pdv: {
+                    ...(formData.pdv || DEFAULT_SETTINGS.pdv),
+                    blockOutOfStock: e.target.checked,
+                  },
+                })
+              }
+              className="mt-0.5 rounded text-blue-600 focus:ring-0"
+            />
+            <div>
+              <span className="text-sm font-semibold text-white block">
+                Bloquear Venda de Produtos com Estoque Zerado
+              </span>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Quando desativado (recomendado), permite bipar e vender normalmente mesmo que o estoque cadastrado esteja temporariamente zerado.
+              </p>
+            </div>
+          </label>
+
+          <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 transition">
+            <input
+              type="checkbox"
+              checked={formData.pdv?.allowDiscountForOperator ?? true}
+              onChange={e =>
+                setFormData({
+                  ...formData,
+                  pdv: {
+                    ...(formData.pdv || DEFAULT_SETTINGS.pdv),
+                    allowDiscountForOperator: e.target.checked,
+                  },
+                })
+              }
+              className="mt-0.5 rounded text-blue-600 focus:ring-0"
+            />
+            <div>
+              <span className="text-sm font-semibold text-white block">
+                Permitir que Operadores de Caixa Apliquem Descontos
+              </span>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Libera o botão e atalho de desconto (F4) para perfis com permissão de operador no PDV.
+              </p>
+            </div>
+          </label>
+        </div>
+
+        <div className="flex justify-end pt-2">
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={handleSaveCompany}
+            className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs md:text-sm shadow-md shadow-blue-600/20 transition cursor-pointer"
+          >
+            {isSaving ? 'Salvando...' : 'Salvar Preferências do PDV'}
+          </button>
         </div>
       </div>
 

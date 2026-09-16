@@ -51,6 +51,12 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [barcodeInput, setBarcodeInput] = useState('');
 
+  // Visual scan feedback & auto-open register
+  const [lastBippedId, setLastBippedId] = useState<string | null>(null);
+  const [isQuickOpenRegisterModalOpen, setIsQuickOpenRegisterModalOpen] = useState(false);
+  const [pendingProductToBip, setPendingProductToBip] = useState<Product | null>(null);
+  const [isOpeningRegister, setIsOpeningRegister] = useState(false);
+
   // Cart State
   const [cart, setCart] = useState<SaleItem[]>([]);
   const [discountType, setDiscountType] = useState<'reais' | 'percent'>('reais');
@@ -69,9 +75,18 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
   const [mixedPayments, setMixedPayments] = useState<PaymentEntry[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Focus Refs
+  // Focus Refs & Scanner Buffer
   const searchInputRef = useRef<HTMLInputElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const scanBufferRef = useRef<string>('');
+  const lastKeyTimeRef = useRef<number>(0);
+  const debounceScanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const focusBarcodeInput = () => {
+    setTimeout(() => {
+      barcodeInputRef.current?.focus();
+    }, 40);
+  };
 
   // Load products and categories
   const loadCatalog = async () => {
@@ -90,6 +105,7 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
   useEffect(() => {
     loadCatalog();
     refreshCashRegister();
+    focusBarcodeInput();
   }, []);
 
   // Keyboard Shortcuts (F2, F3, F4, F5, F8, ESC)
@@ -109,6 +125,7 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
         if (cart.length > 0 && confirm('Deseja limpar todos os itens do carrinho?')) {
           setCart([]);
           setDiscountValue(0);
+          focusBarcodeInput();
         }
       } else if (e.key === 'F8') {
         e.preventDefault();
@@ -119,12 +136,61 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
         setIsCameraScannerOpen(false);
         setIsDiscountModalOpen(false);
         setIsPaymentModalOpen(false);
+        setIsQuickOpenRegisterModalOpen(false);
+        focusBarcodeInput();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [cart, isPaymentModalOpen]);
+
+  // Comprehensive Product Lookup by Barcode, SKU, or ID
+  const findProductByBarcodeOrSku = (rawQuery: string): Product | undefined => {
+    if (!rawQuery) return undefined;
+    const clean = rawQuery.trim();
+    const lower = clean.toLowerCase();
+    const digitsOnly = clean.replace(/\D/g, '');
+
+    // 1. Exact match by barcode or SKU
+    let found = products.find(
+      p =>
+        p.status === 'ativo' &&
+        (p.barcode?.trim().toLowerCase() === lower || p.sku?.trim().toLowerCase() === lower)
+    );
+    if (found) return found;
+
+    // 2. Numeric match (EAN-13, EAN-8, UPC, Code 128)
+    if (digitsOnly.length >= 3) {
+      found = products.find(
+        p =>
+          p.status === 'ativo' &&
+          p.barcode &&
+          p.barcode.replace(/\D/g, '') === digitsOnly
+      );
+      if (found) return found;
+
+      // Match stripped leading zero if scanner added or removed a zero
+      if (digitsOnly.startsWith('0')) {
+        const stripped = digitsOnly.replace(/^0+/, '');
+        if (stripped.length >= 3) {
+          found = products.find(
+            p =>
+              p.status === 'ativo' &&
+              p.barcode &&
+              p.barcode.replace(/\D/g, '').replace(/^0+/, '') === stripped
+          );
+          if (found) return found;
+        }
+      }
+    }
+
+    // 3. Match by internal product ID
+    found = products.find(p => p.status === 'ativo' && p.id.toLowerCase() === lower);
+    if (found) return found;
+
+    return undefined;
+  };
 
   // Cart Calculations
   const subtotal = cart.reduce((acc, item) => acc + item.total, 0);
@@ -140,33 +206,50 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
     user?.role === 'ADMINISTRADOR' ||
     (settings.pdv?.allowDiscountForOperator && hasPermission('aplicar_desconto'));
 
-  // Add Product to Cart with stock check
+  // Add Product to Cart with double-scan quantity incrementation
   const handleAddToCart = (product: Product, quantityToAdd: number = 1) => {
     if (!activeCashRegister) {
-      showToast('Abra o caixa antes de adicionar produtos ao carrinho.', 'error');
+      setPendingProductToBip(product);
+      setIsQuickOpenRegisterModalOpen(true);
+      showToast('O caixa está fechado. Abra o caixa para registrar as vendas.', 'warning');
       return;
     }
 
-    if (product.currentStock <= 0) {
-      showToast(`Produto "${product.name}" sem estoque disponível!`, 'error');
-      return;
-    }
-
+    const blockOutOfStock = settings.pdv?.blockOutOfStock ?? false;
     const existingIndex = cart.findIndex(i => i.productId === product.id);
     const currentQtyInCart = existingIndex >= 0 ? cart[existingIndex].quantity : 0;
     const requestedQty = currentQtyInCart + quantityToAdd;
 
-    if (requestedQty > product.currentStock) {
-      showToast(
-        `Limite de estoque atingido! Disponível: ${product.currentStock} ${product.unit}`,
-        'warning'
-      );
-      return;
+    if (blockOutOfStock) {
+      if (product.currentStock <= 0) {
+        showToast(`Produto "${product.name}" sem estoque disponível!`, 'error');
+        return;
+      }
+      if (requestedQty > product.currentStock) {
+        showToast(
+          `Limite de estoque atingido! Disponível: ${product.currentStock} ${product.unit}`,
+          'warning'
+        );
+        return;
+      }
+    } else {
+      if (product.currentStock <= 0 || requestedQty > product.currentStock) {
+        showToast(
+          `Aviso: Quantidade (${requestedQty}) excede o estoque atual (${product.currentStock} ${product.unit}). Venda autorizada.`,
+          'info'
+        );
+      }
     }
 
+    // Barcode Beep & Visual Highlight
     playBeep();
+    setLastBippedId(product.id);
+    setTimeout(() => {
+      setLastBippedId(prev => (prev === product.id ? null : prev));
+    }, 1500);
 
     if (existingIndex >= 0) {
+      // INCREMENT QUANTITY on subsequent scans
       const updated = [...cart];
       const item = updated[existingIndex];
       const newQty = item.quantity + quantityToAdd;
@@ -176,7 +259,12 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
         total: Number((newQty * item.unitPrice - item.discount).toFixed(2)),
       };
       setCart(updated);
+      showToast(
+        `+${quantityToAdd} "${product.name}" bipado! (Total no carrinho: ${newQty} ${product.unit})`,
+        'success'
+      );
     } else {
+      // ADD NEW ITEM on 1st scan
       const newItem: SaleItem = {
         productId: product.id,
         productName: product.name,
@@ -189,8 +277,130 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
         total: Number((quantityToAdd * product.salePrice).toFixed(2)),
       };
       setCart(prev => [newItem, ...prev]);
+      showToast(`"${product.name}" adicionado à lista de venda!`, 'success');
+    }
+
+    focusBarcodeInput();
+  };
+
+  // Process scanned code directly
+  const processScannedBarcode = (rawCode: string) => {
+    const code = rawCode.trim();
+    if (!code) return;
+
+    const matched = findProductByBarcodeOrSku(code);
+
+    if (matched) {
+      handleAddToCart(matched, 1);
+      setBarcodeInput('');
+      scanBufferRef.current = '';
+      focusBarcodeInput();
+    } else {
+      showToast(`Código de barras "${code}" não encontrado no catálogo.`, 'error');
+      setBarcodeInput('');
+      scanBufferRef.current = '';
+      focusBarcodeInput();
     }
   };
+
+  // Global Hardware Barcode Scanner Listener
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Ignore if any modal is open
+      if (
+        isPaymentModalOpen ||
+        isDiscountModalOpen ||
+        isCameraScannerOpen ||
+        isReceiptOpen ||
+        isQuickOpenRegisterModalOpen
+      ) {
+        return;
+      }
+
+      // Ignore standard shortcut function keys
+      if (['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', 'Escape'].includes(e.key)) {
+        return;
+      }
+
+      const activeEl = document.activeElement;
+      const isInputOrTextarea =
+        activeEl?.tagName === 'INPUT' ||
+        activeEl?.tagName === 'TEXTAREA' ||
+        (activeEl as HTMLElement)?.isContentEditable;
+
+      // Case 1: Search input is active and user pressed Enter with barcode
+      if (activeEl === searchInputRef.current) {
+        if (e.key === 'Enter') {
+          const query = searchQuery.trim();
+          const matched = findProductByBarcodeOrSku(query);
+          if (matched) {
+            e.preventDefault();
+            handleAddToCart(matched, 1);
+            setSearchQuery('');
+            focusBarcodeInput();
+            return;
+          }
+        }
+        return;
+      }
+
+      // Case 2: Barcode input is already focused
+      if (activeEl === barcodeInputRef.current) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          processScannedBarcode(barcodeInput);
+        }
+        return;
+      }
+
+      // Case 3: Other interactive input is focused
+      if (isInputOrTextarea && activeEl !== barcodeInputRef.current) {
+        return;
+      }
+
+      // Case 4: No text input is focused (e.g. user clicked on category, product card, or background)
+      const now = Date.now();
+      const timeDiff = now - lastKeyTimeRef.current;
+      lastKeyTimeRef.current = now;
+
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        if (scanBufferRef.current.length >= 2) {
+          e.preventDefault();
+          processScannedBarcode(scanBufferRef.current);
+          scanBufferRef.current = '';
+        }
+        focusBarcodeInput();
+        return;
+      }
+
+      // Capture single printable characters
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        // If burst time > 300ms, start a fresh buffer
+        if (timeDiff > 300) {
+          scanBufferRef.current = e.key;
+        } else {
+          scanBufferRef.current += e.key;
+        }
+
+        setBarcodeInput(scanBufferRef.current);
+        focusBarcodeInput();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [
+    products,
+    cart,
+    activeCashRegister,
+    barcodeInput,
+    searchQuery,
+    isPaymentModalOpen,
+    isDiscountModalOpen,
+    isCameraScannerOpen,
+    isReceiptOpen,
+    isQuickOpenRegisterModalOpen,
+  ]);
 
   // Adjust quantity (+ / - / direct edit)
   const handleUpdateQuantity = (productId: string, newQty: number) => {
@@ -200,7 +410,8 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
     }
 
     const product = products.find(p => p.id === productId);
-    if (product && newQty > product.currentStock) {
+    const blockOutOfStock = settings.pdv?.blockOutOfStock ?? false;
+    if (blockOutOfStock && product && newQty > product.currentStock) {
       showToast(
         `Estoque insuficiente! Disponível: ${product.currentStock} ${product.unit}`,
         'warning'
@@ -224,41 +435,41 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
 
   const handleRemoveItem = (productId: string) => {
     setCart(prev => prev.filter(i => i.productId !== productId));
+    focusBarcodeInput();
   };
 
   // Barcode Handlers
   const handleBarcodeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!barcodeInput.trim()) return;
-
-    const query = barcodeInput.trim().toLowerCase();
-    const matched = products.find(
-      p =>
-        p.status === 'ativo' &&
-        (p.barcode.toLowerCase() === query || p.sku.toLowerCase() === query)
-    );
-
-    if (matched) {
-      handleAddToCart(matched, 1);
-      setBarcodeInput('');
-    } else {
-      showToast(`Código "${barcodeInput}" não encontrado no catálogo.`, 'error');
-    }
+    processScannedBarcode(barcodeInput);
   };
 
   const handleCameraScan = (scannedCode: string) => {
-    const query = scannedCode.trim().toLowerCase();
-    const matched = products.find(
-      p =>
-        p.status === 'ativo' &&
-        (p.barcode.toLowerCase() === query || p.sku.toLowerCase() === query)
-    );
+    processScannedBarcode(scannedCode);
+  };
 
-    if (matched) {
-      handleAddToCart(matched, 1);
-      showToast(`Produto "${matched.name}" adicionado!`, 'success');
-    } else {
-      showToast(`Código de barras "${scannedCode}" não encontrado.`, 'error');
+  // Quick Open Cash Register
+  const handleQuickOpenRegister = async (initialAmount: number = 0) => {
+    try {
+      setIsOpeningRegister(true);
+      await cashService.openRegister(
+        initialAmount,
+        user?.username || 'operador',
+        'Abertura rápida no Ponto de Venda'
+      );
+      await refreshCashRegister();
+      setIsQuickOpenRegisterModalOpen(false);
+      showToast('Caixa aberto com sucesso! Pronto para realizar vendas.', 'success');
+
+      if (pendingProductToBip) {
+        handleAddToCart(pendingProductToBip, 1);
+        setPendingProductToBip(null);
+      }
+      focusBarcodeInput();
+    } catch (e) {
+      showToast((e as Error).message || 'Erro ao abrir caixa.', 'error');
+    } finally {
+      setIsOpeningRegister(false);
     }
   };
 
@@ -409,7 +620,7 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
         <div className="lg:col-span-7 flex flex-col bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
           {/* Top Search & Barcode Bar */}
           <div className="p-3 border-b border-slate-800 bg-slate-900/90 space-y-2.5">
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               {/* Text Search Input */}
               <div className="relative flex-1">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
@@ -425,30 +636,84 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
                 />
               </div>
 
-              {/* Barcode USB / Input */}
-              <form onSubmit={handleBarcodeSubmit} className="relative w-48 sm:w-56">
-                <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-500">
-                  <Barcode className="w-4 h-4" />
-                </div>
-                <input
-                  ref={barcodeInputRef}
-                  type="text"
-                  placeholder="Código de barras (F3)..."
-                  value={barcodeInput}
-                  onChange={e => setBarcodeInput(e.target.value)}
-                  className="w-full pl-8 pr-2 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs md:text-sm text-white focus:outline-hidden focus:border-blue-500 placeholder:text-slate-500 font-mono"
-                />
-              </form>
+              {/* Barcode USB Scanner Input */}
+              <div className="flex items-center gap-1.5 flex-1 sm:max-w-md">
+                <form onSubmit={handleBarcodeSubmit} className="relative flex-1">
+                  <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-emerald-400">
+                    <Barcode className="w-4 h-4" />
+                  </div>
+                  <input
+                    ref={barcodeInputRef}
+                    type="text"
+                    placeholder="Bipar código de barras (F3)..."
+                    value={barcodeInput}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setBarcodeInput(val);
 
-              {/* Camera Scanner Button */}
-              <button
-                type="button"
-                onClick={() => setIsCameraScannerOpen(true)}
-                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
-                title="Escanear com a câmera"
-              >
-                <Camera className="w-4 h-4 text-blue-400" />
-              </button>
+                      // If scanner appended newline
+                      if (val.includes('\n') || val.includes('\r')) {
+                        processScannedBarcode(val.replace(/[\r\n]/g, ''));
+                        return;
+                      }
+
+                      // Auto-scan debounced on exact barcode/sku match
+                      if (debounceScanTimeoutRef.current) {
+                        clearTimeout(debounceScanTimeoutRef.current);
+                      }
+                      const clean = val.trim();
+                      if (clean.length >= 6) {
+                        debounceScanTimeoutRef.current = setTimeout(() => {
+                          const directMatch = products.find(
+                            p =>
+                              p.status === 'ativo' &&
+                              (p.barcode?.trim().toLowerCase() === clean.toLowerCase() ||
+                               p.sku?.trim().toLowerCase() === clean.toLowerCase())
+                          );
+                          if (directMatch) {
+                            processScannedBarcode(clean);
+                          }
+                        }, 70);
+                      }
+                    }}
+                    className="w-full pl-8 pr-14 py-2 rounded-xl bg-slate-950 border border-emerald-500/40 text-xs md:text-sm text-white focus:outline-hidden focus:border-emerald-400 focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-500 font-mono shadow-inner"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!barcodeInput.trim()}
+                    className="absolute right-1 top-1 bottom-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-0 text-white text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+                    title="Adicionar produto"
+                  >
+                    Bipar
+                  </button>
+                </form>
+
+                {/* Camera Scanner Button */}
+                <button
+                  type="button"
+                  onClick={() => setIsCameraScannerOpen(true)}
+                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition shrink-0"
+                  title="Escanear com a câmera"
+                >
+                  <Camera className="w-4 h-4 text-blue-400" />
+                </button>
+              </div>
+            </div>
+
+            {/* Status indicator for Barcode Reader */}
+            <div className="flex items-center justify-between text-[11px] px-1 text-slate-400">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span className="text-emerald-400 font-medium">
+                  Leitor de Código Pronto (apenas aponte e bipe)
+                </span>
+              </div>
+              <span className="hidden sm:inline text-slate-500 text-[10px]">
+                Dica: Bipar o mesmo código 2x soma +1 automaticamente na quantidade!
+              </span>
             </div>
 
             {/* Fast Category Filter Chips */}
@@ -600,54 +865,77 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
           {/* Cart Items List */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {cart.length > 0 ? (
-              cart.map(item => (
-                <div
-                  key={item.productId}
-                  className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-3 text-xs"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-white truncate">{item.productName}</p>
-                    <div className="flex items-center gap-2 text-slate-400 text-[11px] mt-0.5">
-                      <span className="font-mono">{formatCurrency(item.unitPrice)}</span>
-                      <span>•</span>
-                      <span className="font-mono text-slate-500">SKU: {item.sku}</span>
-                    </div>
-                  </div>
+              cart.map(item => {
+                const isJustBipped = item.productId === lastBippedId;
 
-                  {/* Quantity Controls */}
-                  <div className="flex items-center gap-1.5 bg-slate-900 px-1.5 py-1 rounded-lg border border-slate-800">
-                    <button
-                      onClick={() => handleUpdateQuantity(item.productId, item.quantity - 1)}
-                      className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800"
-                    >
-                      <Minus className="w-3 h-3" />
-                    </button>
-                    <span className="w-6 text-center font-bold text-white font-mono">
-                      {item.quantity}
-                    </span>
-                    <button
-                      onClick={() => handleUpdateQuantity(item.productId, item.quantity + 1)}
-                      className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800"
-                    >
-                      <Plus className="w-3 h-3" />
-                    </button>
-                  </div>
-
-                  {/* Item Total */}
-                  <div className="text-right min-w-[70px]">
-                    <p className="font-bold text-white font-mono">{formatCurrency(item.total)}</p>
-                  </div>
-
-                  {/* Delete Item */}
-                  <button
-                    onClick={() => handleRemoveItem(item.productId)}
-                    className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg transition"
-                    title="Remover produto"
+                return (
+                  <div
+                    key={item.productId}
+                    className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs transition-all duration-300 ${
+                      isJustBipped
+                        ? 'bg-blue-950/70 border-blue-400 shadow-lg shadow-blue-500/20 ring-2 ring-blue-500/50 scale-[1.01]'
+                        : 'bg-slate-950/80 border-slate-800'
+                    }`}
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-white truncate">{item.productName}</p>
+                        {isJustBipped && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
+                            Bipado (+1)
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-slate-400 text-[11px] mt-0.5">
+                        <span className="font-mono">{formatCurrency(item.unitPrice)}</span>
+                        <span>•</span>
+                        <span className="font-mono text-slate-500">SKU: {item.sku}</span>
+                        {item.barcode && (
+                          <>
+                            <span>•</span>
+                            <span className="font-mono text-slate-500">Cód: {item.barcode}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Quantity Controls */}
+                    <div className="flex items-center gap-1.5 bg-slate-900 px-1.5 py-1 rounded-lg border border-slate-800">
+                      <button
+                        onClick={() => handleUpdateQuantity(item.productId, item.quantity - 1)}
+                        className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800"
+                        title="Diminuir quantidade"
+                      >
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      <span className="w-7 text-center font-bold text-white font-mono text-xs">
+                        {item.quantity}
+                      </span>
+                      <button
+                        onClick={() => handleUpdateQuantity(item.productId, item.quantity + 1)}
+                        className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800"
+                        title="Aumentar quantidade"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    {/* Item Total */}
+                    <div className="text-right min-w-[70px]">
+                      <p className="font-bold text-white font-mono">{formatCurrency(item.total)}</p>
+                    </div>
+
+                    {/* Delete Item */}
+                    <button
+                      onClick={() => handleRemoveItem(item.productId)}
+                      className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg transition"
+                      title="Remover produto"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                );
+              })
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs py-12">
                 <ShoppingBag className="w-12 h-12 mb-2 opacity-20" />
@@ -1073,6 +1361,55 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
               >
                 <CheckCircle className="w-5 h-5" />
                 <span>{isSubmitting ? 'Finalizando...' : 'Confirmar Venda (Enter)'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Open Register Modal */}
+      {isQuickOpenRegisterModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-amber-400">
+              <AlertCircle className="w-6 h-6 shrink-0" />
+              <h3 className="font-bold text-base text-white">Caixa Fechado para Vendas</h3>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Para começar a bipar produtos no leitor de código de barras e registrar vendas, é necessário abrir o caixa do dia.
+            </p>
+
+            {pendingProductToBip && (
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Produto Bipado</span>
+                  <span className="font-semibold text-white">{pendingProductToBip.name}</span>
+                </div>
+                <span className="font-mono text-emerald-400 font-bold">{formatCurrency(pendingProductToBip.salePrice)}</span>
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsQuickOpenRegisterModalOpen(false);
+                  setPendingProductToBip(null);
+                  focusBarcodeInput();
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isOpeningRegister}
+                onClick={() => handleQuickOpenRegister(0)}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20"
+              >
+                <CheckCircle className="w-4 h-4" />
+                <span>{isOpeningRegister ? 'Abrindo...' : 'Abrir Caixa (R$ 0) e Continuar'}</span>
               </button>
             </div>
           </div>

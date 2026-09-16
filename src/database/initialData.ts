@@ -48,6 +48,7 @@ export const DEFAULT_SETTINGS: CompanySettings = {
     barcodeAudioBeep: true,
     printReceiptAutomatically: false,
     printerWidth: '80mm',
+    blockOutOfStock: false,
   },
 };
 
