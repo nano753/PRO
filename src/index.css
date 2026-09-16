@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Hide everything except print target elements */
+  nav,
+  aside,
+  header,
+  footer,
+  button,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Ensure print content expands cleanly */
+  .print\:visible,
+  .print\:block {
+    display: block !important;
+  }
+
+  /* Specific formatting for thermal receipts */
+  @page {
+    margin: 2mm;
+    size: auto;
+  }
+}

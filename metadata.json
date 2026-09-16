@@ -1,0 +1,10 @@
+{
+  "name": "Estoque Pro",
+  "description": "Sistema profissional de Estoque, PDV e Caixa 100% offline com PWA e IndexedDB",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
