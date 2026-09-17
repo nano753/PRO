@@ -40,15 +40,32 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
     },
   ];
 
+  const handleOfficialGooglePopup = async () => {
+    setLoading(true);
+    try {
+      await loginWithGoogle();
+      showToast('Autenticado com sucesso via Conta Google! Salvando na nuvem Firebase.', 'success');
+      onClose();
+      if (onSuccess) {
+        onSuccess();
+      }
+    } catch (err) {
+      console.warn('Popup login notice:', err);
+      showToast('Para continuar no iframe, selecione sua conta Google abaixo.', 'info');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleLoginAccount = async (account: { name: string; email: string; avatar?: string }) => {
     setLoading(true);
     try {
       await loginWithGoogle({
         email: account.email,
         name: account.name,
-        avatar: account.avatar,
+        picture: account.avatar,
       });
-      showToast(`Conectado com sucesso via Google (${account.email})! Redirecionando para o PDV...`, 'success');
+      showToast(`Conectado como ${account.name} (${account.email})! Sincronização na nuvem ativada.`, 'success');
       onClose();
       if (onSuccess) {
         onSuccess();
@@ -100,14 +117,34 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           </div>
           <h2 className="text-base font-bold text-slate-800">Fazer login com o Google</h2>
           <p className="text-xs text-slate-500 mt-1">
-            Escolha uma conta para continuar no <strong>ESTOQUE PRO PDV</strong>
+            Acesse sua conta Google para salvar tudo no <strong>ESTOQUE PRO na Nuvem</strong>
           </p>
+          <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-[11px] font-semibold">
+            <span>☁️</span>
+            <span>Salvando dados na Nuvem (Firebase)</span>
+          </div>
         </div>
 
         {/* Body */}
         <div className="p-4 space-y-2">
           {!showCustomForm ? (
             <>
+              {/* Botão de Popup Direto do Firebase Auth */}
+              <button
+                type="button"
+                disabled={loading}
+                onClick={handleOfficialGooglePopup}
+                className="w-full py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
+              >
+                <span>🔑</span>
+                <span>Abrir Janela Oficial Google (Popup)</span>
+              </button>
+
+              <div className="relative my-2 text-center">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 bg-white px-2">
+                  ou escolha uma conta rápida
+                </span>
+              </div>
               {defaultAccounts.map(account => (
                 <button
                   key={account.id}

@@ -1,0 +1,182 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Estoque de produtos e peças com múltiplos códigos de barras e controle de lotes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "sku": { "type": "string" },
+        "barcode": { "type": "string" },
+        "additionalBarcodes": { "type": "array" },
+        "categoryId": { "type": "string" },
+        "costPrice": { "type": "number" },
+        "salePrice": { "type": "number" },
+        "profitMargin": { "type": "number" },
+        "currentStock": { "type": "number" },
+        "minStock": { "type": "number" },
+        "unit": { "type": "string" },
+        "location": { "type": "string" },
+        "notes": { "type": "string" },
+        "status": { "type": "string" },
+        "brand": { "type": "string" },
+        "boxQuantity": { "type": "number" },
+        "lots": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "sku", "salePrice", "currentStock"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Categorias de produtos",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "Movement": {
+      "title": "Movement",
+      "description": "Movimentações de entrada, saída e auditoria de estoque",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "productSku": { "type": "string" },
+        "type": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unitCostOrPrice": { "type": "number" },
+        "totalValue": { "type": "number" },
+        "reason": { "type": "string" },
+        "user": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "observation": { "type": "string" },
+        "supplier": { "type": "string" },
+        "lotNumber": { "type": "string" },
+        "barcodeUsed": { "type": "string" },
+        "expiryDate": { "type": "string" }
+      },
+      "required": ["id", "productId", "type", "quantity", "user", "date"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "Vendas efetuadas no PDV",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "saleNumber": { "type": "number" },
+        "items": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "discount": { "type": "number" },
+        "total": { "type": "number" },
+        "paymentMethods": { "type": "array" },
+        "status": { "type": "string" },
+        "user": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerDocument": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "items", "total", "status", "user", "date"]
+    },
+    "CashRegister": {
+      "title": "CashRegister",
+      "description": "Sessões de abertura e fechamento de caixa do PDV",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "openedAt": { "type": "string" },
+        "closedAt": { "type": "string" },
+        "openedBy": { "type": "string" },
+        "closedBy": { "type": "string" },
+        "initialAmount": { "type": "number" },
+        "finalAmount": { "type": "number" },
+        "totalSales": { "type": "number" },
+        "totalReceived": { "type": "number" },
+        "difference": { "type": "number" },
+        "status": { "type": "string" },
+        "movements": { "type": "array" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "openedAt", "openedBy", "initialAmount", "status"]
+    },
+    "CompanySettings": {
+      "title": "CompanySettings",
+      "description": "Configurações da empresa e dados fiscais",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyName": { "type": "string" },
+        "tradingName": { "type": "string" },
+        "document": { "type": "string" },
+        "stateRegistration": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "logo": { "type": "string" },
+        "currency": { "type": "string" },
+        "timezone": { "type": "string" },
+        "receiptFooter": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "companyName"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Usuários e operadores do sistema com permissões e papéis",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "permissions": { "type": "array" },
+        "status": { "type": "string" },
+        "avatar": { "type": "string" },
+        "authProvider": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "role", "status"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Coleção de produtos e estoque"
+    },
+    "/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Coleção de categorias"
+    },
+    "/movements/{movementId}": {
+      "schema": { "$ref": "#/entities/Movement" },
+      "description": "Histórico de movimentações de estoque"
+    },
+    "/sales/{saleId}": {
+      "schema": { "$ref": "#/entities/Sale" },
+      "description": "Coleção de vendas do PDV"
+    },
+    "/cashRegisters/{registerId}": {
+      "schema": { "$ref": "#/entities/CashRegister" },
+      "description": "Sessões de caixa do PDV"
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/CompanySettings" },
+      "description": "Configurações da empresa"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Perfis de usuários"
+    }
+  }
+}

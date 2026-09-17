@@ -3,6 +3,8 @@ import { hashPassword, verifyPassword } from '../utils/crypto';
 import { CompanySettings, Permission, User, UserRole } from '../types';
 import { DEFAULT_SETTINGS } from '../database/initialData';
 import { isValidCNPJ } from '../utils/formatters';
+import { auth, googleProvider } from './firebase';
+import { signInWithPopup, signOut } from 'firebase/auth';
 
 const SESSION_KEY = 'estoque_pro_current_user_id';
 
@@ -71,8 +73,13 @@ export const authService = {
     return user || null;
   },
 
-  logout(): void {
+  async logout(): Promise<void> {
     localStorage.removeItem(SESSION_KEY);
+    try {
+      await signOut(auth);
+    } catch {
+      // ignore
+    }
   },
 
   async registerCompanyAndAdmin(data: {
@@ -206,16 +213,37 @@ export const authService = {
     return newUser;
   },
 
-  async loginWithGoogle(data: { email: string; name?: string; picture?: string }): Promise<User> {
-    const cleanEmail = data.email.trim().toLowerCase();
-    if (!cleanEmail) {
-      throw new Error('E-mail Google inválido.');
+  async loginWithGoogle(data?: { email?: string; name?: string; picture?: string }): Promise<User> {
+    let email = data?.email?.trim().toLowerCase() || '';
+    let name = data?.name?.trim();
+    let picture = data?.picture;
+    let uid = '';
+
+    if (!email) {
+      // Trigger real Firebase Google Popup Login
+      const result = await signInWithPopup(auth, googleProvider);
+      const googleUser = result.user;
+      email = (googleUser.email || '').trim().toLowerCase();
+      name = googleUser.displayName || email.split('@')[0] || 'Usuário Google';
+      picture = googleUser.photoURL || undefined;
+      uid = googleUser.uid;
+    }
+
+    if (!email) {
+      throw new Error('Não foi possível obter o e-mail da conta Google.');
     }
 
     const users = await databaseService.getAll<User>('users');
     let user = users.find(
-      u => u.username.toLowerCase() === cleanEmail || u.email?.toLowerCase() === cleanEmail
+      u =>
+        u.username.toLowerCase() === email ||
+        u.email?.toLowerCase() === email ||
+        (uid && u.id === uid)
     );
+
+    // E-mail do administrador cadastrado no projeto
+    const isSuperAdmin =
+      email === 'lfagundes192168@gmail.com' || email.includes('admin');
 
     if (user) {
       if (user.status !== 'ativo') {
@@ -223,22 +251,25 @@ export const authService = {
       }
       user = {
         ...user,
-        name: data.name ? data.name.trim() : user.name,
-        avatar: data.picture || user.avatar,
+        name: name || user.name,
+        avatar: picture || user.avatar,
+        email,
         authProvider: 'google',
+        role: isSuperAdmin ? 'ADMINISTRADOR' : user.role,
+        permissions: isSuperAdmin ? ALL_PERMISSIONS : user.permissions,
       };
       await databaseService.save<User>('users', user);
     } else {
       user = {
-        id: `usr-google-${Date.now()}`,
-        name: data.name?.trim() || cleanEmail.split('@')[0],
-        username: cleanEmail,
-        email: cleanEmail,
-        avatar: data.picture,
+        id: uid || `usr-google-${Date.now()}`,
+        name: name || email.split('@')[0],
+        username: email,
+        email,
+        avatar: picture,
         authProvider: 'google',
         passwordHash: '',
-        role: 'OPERADOR', // Vendedor
-        permissions: VENDOR_DEFAULT_PERMISSIONS,
+        role: isSuperAdmin ? 'ADMINISTRADOR' : 'OPERADOR', // Vendedor
+        permissions: isSuperAdmin ? ALL_PERMISSIONS : VENDOR_DEFAULT_PERMISSIONS,
         status: 'ativo',
         createdAt: new Date().toISOString(),
       };

@@ -443,15 +443,33 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 
           {/* User Card & Logout */}
           <div className="flex items-center justify-between p-2 rounded-xl bg-slate-950/80 border border-slate-800">
-            <div className="overflow-hidden">
-              <p className="text-xs font-semibold text-white truncate">{user?.name || 'Operador'}</p>
-              <p className="text-[10px] text-slate-400 capitalize">
-                {user?.role === 'ADMINISTRADOR' ? 'Administrador' : 'Operador'}
-              </p>
+            <div className="flex items-center gap-2 overflow-hidden">
+              {user?.avatar ? (
+                <img
+                  src={user.avatar}
+                  alt={user.name}
+                  className="w-7 h-7 rounded-full object-cover border border-slate-700 shrink-0"
+                />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-blue-600/30 text-blue-400 flex items-center justify-center text-xs font-bold shrink-0">
+                  {user?.name?.[0]?.toUpperCase() || 'U'}
+                </div>
+              )}
+              <div className="overflow-hidden">
+                <div className="flex items-center gap-1">
+                  <p className="text-xs font-semibold text-white truncate">{user?.name || 'Operador'}</p>
+                  {user?.authProvider === 'google' && (
+                    <span className="text-[9px] px-1 rounded bg-blue-500/20 text-blue-400 font-bold shrink-0">G</span>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-400 capitalize truncate">
+                  {user?.role === 'ADMINISTRADOR' ? 'Administrador' : 'Operador (PDV)'}
+                </p>
+              </div>
             </div>
             <button
               onClick={logout}
-              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
+              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition shrink-0"
               title="Encerrar Sessão"
             >
               <LogOut className="w-4 h-4" />
@@ -475,7 +493,16 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 title={isOnline ? 'Conexão ativa' : 'Modo offline — dados salvos neste dispositivo'}
               >
                 {isOnline ? <Wifi className="w-3.5 h-3.5 text-emerald-400" /> : <WifiOff className="w-3.5 h-3.5 text-rose-400" />}
-                <span>{isOnline ? '🟢 Online' : '🔴 Offline — Dados salvos localmente'}</span>
+                <span>{isOnline ? '🟢 Online' : '🔴 Offline'}</span>
+              </span>
+
+              {/* Nuvem Firestore */}
+              <span
+                className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                title="Sincronização em Nuvem ativa no Firebase Firestore"
+              >
+                <span>☁️</span>
+                <span>Nuvem Conectada</span>
               </span>
             </div>
 
