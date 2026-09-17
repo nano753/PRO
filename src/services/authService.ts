@@ -277,6 +277,9 @@ export const authService = {
     }
 
     localStorage.setItem(SESSION_KEY, user.id);
+    databaseService.syncWithCloud().catch(err => {
+      console.warn('Background cloud sync after Google login:', err);
+    });
     return user;
   },
 

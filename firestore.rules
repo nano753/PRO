@@ -37,9 +37,15 @@ service cloud.firestore {
       allow read, write: if isSignedIn() || isSuperAdmin();
     }
 
+    // Cash Movements: sangria and suprimento
+    match /cashMovements/{movementId} {
+      allow read, write: if isSignedIn() || isSuperAdmin();
+    }
+
     // Settings: company settings and fiscal information
     match /settings/{settingId} {
-      allow read, write: if isSignedIn() || isSuperAdmin();
+      allow read: if true;
+      allow write: if isSignedIn() || isSuperAdmin();
     }
 
     // Users: system users

@@ -161,4 +161,61 @@ export const databaseService = {
   async wipeAll(): Promise<void> {
     await dbManager.wipeAllData();
   },
+
+  async syncWithCloud(): Promise<{ uploaded: number; downloaded: number }> {
+    let uploaded = 0;
+    let downloaded = 0;
+    const stores: StoreName[] = [
+      'settings',
+      'categories',
+      'products',
+      'movements',
+      'sales',
+      'cashRegisters',
+      'cashMovements',
+      'users',
+    ];
+
+    for (const store of stores) {
+      try {
+        const colRef = collection(db, store);
+        const snapshot = await getDocs(colRef);
+        const cloudDocsMap = new Map<string, any>();
+
+        for (const docSnap of snapshot.docs) {
+          cloudDocsMap.set(docSnap.id, docSnap.data());
+        }
+
+        const localItems = await dbManager.getAll<any>(store);
+        const localItemsMap = new Map<string, any>();
+
+        for (const it of localItems) {
+          const id = String(it.id || it.code || '');
+          if (id) localItemsMap.set(id, it);
+        }
+
+        // 1. Download missing cloud documents into local DB
+        for (const [id, cloudData] of cloudDocsMap.entries()) {
+          const local = localItemsMap.get(id);
+          if (!local) {
+            await dbManager.put(store, cloudData);
+            downloaded++;
+          }
+        }
+
+        // 2. Upload any local documents not yet in cloud
+        for (const [id, localData] of localItemsMap.entries()) {
+          if (!cloudDocsMap.has(id)) {
+            const docRef = doc(db, store, id);
+            await setDoc(docRef, cleanFirestoreData(localData), { merge: true });
+            uploaded++;
+          }
+        }
+      } catch (err) {
+        console.warn(`[SyncWithCloud] Sync store ${store} notice:`, err);
+      }
+    }
+
+    return { uploaded, downloaded };
+  },
 };

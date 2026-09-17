@@ -109,6 +109,21 @@
       },
       "required": ["id", "openedAt", "openedBy", "initialAmount", "status"]
     },
+    "CashMovement": {
+      "title": "CashMovement",
+      "description": "Movimentações de sangria e suprimento de caixa",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "registerId": { "type": "string" },
+        "type": { "type": "string" },
+        "amount": { "type": "number" },
+        "reason": { "type": "string" },
+        "user": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "registerId", "type", "amount", "user"]
+    },
     "CompanySettings": {
       "title": "CompanySettings",
       "description": "Configurações da empresa e dados fiscais",
@@ -169,6 +184,10 @@
     "/cashRegisters/{registerId}": {
       "schema": { "$ref": "#/entities/CashRegister" },
       "description": "Sessões de caixa do PDV"
+    },
+    "/cashMovements/{movementId}": {
+      "schema": { "$ref": "#/entities/CashMovement" },
+      "description": "Movimentações de sangria e suprimento de caixa"
     },
     "/settings/{settingId}": {
       "schema": { "$ref": "#/entities/CompanySettings" },
