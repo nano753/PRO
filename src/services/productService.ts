@@ -1,5 +1,6 @@
 import { databaseService } from './databaseService';
-import { Category, Movement, MovementReason, MovementType, Product } from '../types';
+import { authService } from './authService';
+import { Category, Movement, MovementReason, MovementType, Product, ProductLot } from '../types';
 
 export const productService = {
   async getProducts(): Promise<Product[]> {
@@ -12,15 +13,95 @@ export const productService = {
   },
 
   async getProductByBarcodeOrSku(query: string): Promise<Product | undefined> {
+    if (!query) return undefined;
     const cleanQuery = query.trim().toLowerCase();
+    const digitsOnly = query.replace(/\D/g, '');
     const products = await databaseService.getAll<Product>('products');
-    return products.find(
-      p =>
-        p.status === 'ativo' &&
-        (p.barcode.toLowerCase() === cleanQuery ||
-          p.sku.toLowerCase() === cleanQuery ||
-          p.name.toLowerCase() === cleanQuery)
-    );
+
+    return products.find(p => {
+      if (p.status !== 'ativo') return false;
+
+      // 1. Direct match with primary barcode, sku, or name
+      if (
+        p.barcode?.toLowerCase() === cleanQuery ||
+        p.sku?.toLowerCase() === cleanQuery ||
+        p.name?.toLowerCase() === cleanQuery
+      ) {
+        return true;
+      }
+
+      // 2. Match with additional barcodes / QR codes (box, fardo, other lot barcodes)
+      if (
+        p.additionalBarcodes &&
+        p.additionalBarcodes.some(b => b && b.toLowerCase() === cleanQuery)
+      ) {
+        return true;
+      }
+
+      // 3. Match with lot barcodes
+      if (
+        p.lots &&
+        p.lots.some(l => l.barcode && l.barcode.toLowerCase() === cleanQuery)
+      ) {
+        return true;
+      }
+
+      // 4. Match digits only (EAN-13, EAN-8, UPC)
+      if (digitsOnly.length >= 3) {
+        if (p.barcode && p.barcode.replace(/\D/g, '') === digitsOnly) return true;
+        if (
+          p.additionalBarcodes &&
+          p.additionalBarcodes.some(b => b.replace(/\D/g, '') === digitsOnly)
+        ) {
+          return true;
+        }
+        if (
+          p.lots &&
+          p.lots.some(l => l.barcode && l.barcode.replace(/\D/g, '') === digitsOnly)
+        ) {
+          return true;
+        }
+
+        // Stripped leading zeros
+        if (digitsOnly.startsWith('0')) {
+          const stripped = digitsOnly.replace(/^0+/, '');
+          if (stripped.length >= 3) {
+            if (p.barcode && p.barcode.replace(/\D/g, '').replace(/^0+/, '') === stripped) return true;
+            if (
+              p.additionalBarcodes &&
+              p.additionalBarcodes.some(b => b.replace(/\D/g, '').replace(/^0+/, '') === stripped)
+            ) {
+              return true;
+            }
+          }
+        }
+      }
+
+      return false;
+    });
+  },
+
+  async linkBarcodeToProduct(productId: string, newBarcode: string): Promise<Product> {
+    const cleanCode = newBarcode.trim();
+    if (!cleanCode) throw new Error('Código inválido.');
+
+    const product = await databaseService.getById<Product>('products', productId);
+    if (!product) throw new Error('Produto não encontrado.');
+
+    // If it's already the primary barcode or in additional barcodes, no-op
+    if (product.barcode === cleanCode || product.additionalBarcodes?.includes(cleanCode)) {
+      return product;
+    }
+
+    const currentAdditionals = product.additionalBarcodes || [];
+    const updatedProduct: Product = {
+      ...product,
+      additionalBarcodes: [...currentAdditionals, cleanCode],
+      updatedAt: new Date().toISOString(),
+    };
+
+    await databaseService.save<Product>('products', updatedProduct);
+    return updatedProduct;
   },
 
   async createProduct(
@@ -31,6 +112,7 @@ export const productService = {
     },
     username: string = 'operador'
   ): Promise<Product> {
+    await authService.requireAdmin('cadastrar novos produtos');
     const products = await databaseService.getAll<Product>('products');
 
     const finalCurrentStock =
@@ -103,6 +185,7 @@ export const productService = {
     updates: Partial<Omit<Product, 'id' | 'createdAt'>>,
     username: string = 'operador'
   ): Promise<Product> {
+    await authService.requireAdmin('editar produtos ou alterar preços e estoque');
     const existing = await databaseService.getById<Product>('products', id);
     if (!existing) {
       throw new Error('Produto não encontrado.');
@@ -147,6 +230,7 @@ export const productService = {
   },
 
   async deleteProduct(id: string): Promise<void> {
+    await authService.requireAdmin('excluir produtos do catálogo');
     const existing = await databaseService.getById<Product>('products', id);
     if (!existing) {
       throw new Error('Produto não encontrado.');
@@ -161,7 +245,14 @@ export const productService = {
     reason: MovementReason;
     observation?: string;
     username: string;
+    supplier?: string;
+    lotNumber?: string;
+    lotBarcode?: string; // Código de barras / QR Code do lote ou caixa
+    expiryDate?: string;
+    manufacturingDate?: string;
+    boxQuantity?: number;
   }): Promise<{ product: Product; movement: Movement }> {
+    await authService.requireAdmin('adicionar mercadorias ou dar entrada no estoque');
     if (params.quantity <= 0) {
       throw new Error('A quantidade de entrada deve ser maior que zero.');
     }
@@ -172,13 +263,51 @@ export const productService = {
     }
 
     const unitCost = params.unitCost !== undefined ? params.unitCost : product.costPrice;
+    // SOMA O ESTOQUE ANTIGO COM A QUANTIDADE NOVA QUE ENTROU:
     const newStock = product.currentStock + params.quantity;
     const now = new Date();
+
+    // Se o operador informou ou bipou um novo código de barras ou QR code (de lote ou caixa):
+    const additionalBarcodes = [...(product.additionalBarcodes || [])];
+    const cleanedLotBarcode = params.lotBarcode ? params.lotBarcode.trim() : '';
+    if (
+      cleanedLotBarcode &&
+      product.barcode !== cleanedLotBarcode &&
+      !additionalBarcodes.includes(cleanedLotBarcode)
+    ) {
+      additionalBarcodes.push(cleanedLotBarcode);
+    }
+
+    // Se houver dados de lote (número, código ou validade), adiciona ao histórico de lotes:
+    const lots = [...(product.lots || [])];
+    if (params.lotNumber || cleanedLotBarcode || params.expiryDate) {
+      const lotItem: ProductLot = {
+        id: `lot-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        lotNumber:
+          params.lotNumber?.trim() ||
+          `LT-${now.getFullYear()}-${Date.now().toString().slice(-4)}`,
+        barcode: cleanedLotBarcode || undefined,
+        quantity: params.quantity,
+        unitCost: unitCost,
+        expiryDate: params.expiryDate || undefined,
+        manufacturingDate: params.manufacturingDate || undefined,
+        supplier: params.supplier || undefined,
+        notes: params.observation || undefined,
+        createdAt: now.toISOString(),
+      };
+      lots.push(lotItem);
+    }
 
     const updatedProduct: Product = {
       ...product,
       currentStock: newStock,
       costPrice: unitCost,
+      additionalBarcodes,
+      lots,
+      boxQuantity:
+        params.boxQuantity !== undefined && params.boxQuantity > 0
+          ? params.boxQuantity
+          : product.boxQuantity,
       updatedAt: now.toISOString(),
     };
     await databaseService.save<Product>('products', updatedProduct);
@@ -197,6 +326,10 @@ export const productService = {
       date: now.toISOString().split('T')[0],
       time: now.toTimeString().split(' ')[0],
       observation: params.observation,
+      supplier: params.supplier,
+      lotNumber: params.lotNumber,
+      barcodeUsed: cleanedLotBarcode || undefined,
+      expiryDate: params.expiryDate,
     };
     await databaseService.save<Movement>('movements', movement);
 
@@ -210,6 +343,7 @@ export const productService = {
     observation?: string;
     username: string;
   }): Promise<{ product: Product; movement: Movement }> {
+    await authService.requireAdmin('remover mercadorias ou dar baixa no estoque');
     if (params.quantity <= 0) {
       throw new Error('A quantidade de saída deve ser maior que zero.');
     }
@@ -264,6 +398,11 @@ export const productService = {
     supplier?: string;
     notes?: string;
     user: string;
+    lotNumber?: string;
+    lotBarcode?: string;
+    expiryDate?: string;
+    manufacturingDate?: string;
+    boxQuantity?: number;
   }): Promise<{ product: Product; movement: Movement }> {
     if (params.type === 'ENTRADA') {
       const obs = [params.notes, params.supplier ? `Fornecedor: ${params.supplier}` : null]
@@ -276,6 +415,12 @@ export const productService = {
         reason: params.reason as MovementReason,
         observation: obs || undefined,
         username: params.user,
+        supplier: params.supplier,
+        lotNumber: params.lotNumber,
+        lotBarcode: params.lotBarcode,
+        expiryDate: params.expiryDate,
+        manufacturingDate: params.manufacturingDate,
+        boxQuantity: params.boxQuantity,
       });
     } else {
       return this.registerStockExit({

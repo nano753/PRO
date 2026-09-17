@@ -80,7 +80,8 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const scanBufferRef = useRef<string>('');
   const lastKeyTimeRef = useRef<number>(0);
-  const debounceScanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastScannedBarcodeRef = useRef<{ code: string; timestamp: number }>({ code: '', timestamp: 0 });
+  const isScanProcessingLockRef = useRef<boolean>(false);
 
   const focusBarcodeInput = () => {
     setTimeout(() => {
@@ -145,28 +146,36 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [cart, isPaymentModalOpen]);
 
-  // Comprehensive Product Lookup by Barcode, SKU, or ID
+  // Comprehensive Product Lookup by Barcode, SKU, Additional Barcodes (Lots/Boxes), or ID
   const findProductByBarcodeOrSku = (rawQuery: string): Product | undefined => {
     if (!rawQuery) return undefined;
     const clean = rawQuery.trim();
     const lower = clean.toLowerCase();
     const digitsOnly = clean.replace(/\D/g, '');
 
-    // 1. Exact match by barcode or SKU
+    // 1. Exact match by primary barcode, SKU, or additional barcodes / lot barcodes
     let found = products.find(
       p =>
         p.status === 'ativo' &&
-        (p.barcode?.trim().toLowerCase() === lower || p.sku?.trim().toLowerCase() === lower)
+        (p.barcode?.trim().toLowerCase() === lower ||
+          p.sku?.trim().toLowerCase() === lower ||
+          (p.additionalBarcodes &&
+            p.additionalBarcodes.some(b => b && b.trim().toLowerCase() === lower)) ||
+          (p.lots &&
+            p.lots.some(l => l.barcode && l.barcode.trim().toLowerCase() === lower)))
     );
     if (found) return found;
 
-    // 2. Numeric match (EAN-13, EAN-8, UPC, Code 128)
+    // 2. Numeric match (EAN-13, EAN-8, UPC, Code 128) across primary and secondary barcodes
     if (digitsOnly.length >= 3) {
       found = products.find(
         p =>
           p.status === 'ativo' &&
-          p.barcode &&
-          p.barcode.replace(/\D/g, '') === digitsOnly
+          ((p.barcode && p.barcode.replace(/\D/g, '') === digitsOnly) ||
+            (p.additionalBarcodes &&
+              p.additionalBarcodes.some(b => b && b.replace(/\D/g, '') === digitsOnly)) ||
+            (p.lots &&
+              p.lots.some(l => l.barcode && l.barcode.replace(/\D/g, '') === digitsOnly)))
       );
       if (found) return found;
 
@@ -177,8 +186,15 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
           found = products.find(
             p =>
               p.status === 'ativo' &&
-              p.barcode &&
-              p.barcode.replace(/\D/g, '').replace(/^0+/, '') === stripped
+              ((p.barcode && p.barcode.replace(/\D/g, '').replace(/^0+/, '') === stripped) ||
+                (p.additionalBarcodes &&
+                  p.additionalBarcodes.some(
+                    b => b && b.replace(/\D/g, '').replace(/^0+/, '') === stripped
+                  )) ||
+                (p.lots &&
+                  p.lots.some(
+                    l => l.barcode && l.barcode.replace(/\D/g, '').replace(/^0+/, '') === stripped
+                  )))
           );
           if (found) return found;
         }
@@ -216,29 +232,74 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
     }
 
     const blockOutOfStock = settings.pdv?.blockOutOfStock ?? false;
-    const existingIndex = cart.findIndex(i => i.productId === product.id);
-    const currentQtyInCart = existingIndex >= 0 ? cart[existingIndex].quantity : 0;
-    const requestedQty = currentQtyInCart + quantityToAdd;
+    let toastMessage = '';
+    let toastType: 'success' | 'warning' | 'info' | 'error' = 'success';
+    let isBlocked = false;
 
-    if (blockOutOfStock) {
-      if (product.currentStock <= 0) {
-        showToast(`Produto "${product.name}" sem estoque disponível!`, 'error');
-        return;
+    setCart(prevCart => {
+      const existingIndex = prevCart.findIndex(i => i.productId === product.id);
+      const currentQtyInCart = existingIndex >= 0 ? prevCart[existingIndex].quantity : 0;
+      const requestedQty = currentQtyInCart + quantityToAdd;
+
+      if (blockOutOfStock) {
+        if (product.currentStock <= 0) {
+          toastMessage = `Produto "${product.name}" sem estoque disponível!`;
+          toastType = 'error';
+          isBlocked = true;
+          return prevCart;
+        }
+        if (requestedQty > product.currentStock) {
+          toastMessage = `Limite de estoque atingido! Disponível: ${product.currentStock} ${product.unit}`;
+          toastType = 'warning';
+          isBlocked = true;
+          return prevCart;
+        }
+      } else {
+        if (product.currentStock <= 0 || requestedQty > product.currentStock) {
+          toastMessage = `Aviso: Quantidade (${requestedQty}) excede o estoque atual (${product.currentStock} ${product.unit}). Venda autorizada.`;
+          toastType = 'info';
+        }
       }
-      if (requestedQty > product.currentStock) {
-        showToast(
-          `Limite de estoque atingido! Disponível: ${product.currentStock} ${product.unit}`,
-          'warning'
-        );
-        return;
+
+      if (existingIndex >= 0) {
+        // INCREMENT QUANTITY on subsequent scans
+        const updated = [...prevCart];
+        const item = updated[existingIndex];
+        const newQty = item.quantity + quantityToAdd;
+        updated[existingIndex] = {
+          ...item,
+          quantity: newQty,
+          total: Number((newQty * item.unitPrice - item.discount).toFixed(2)),
+        };
+        if (!toastMessage) {
+          toastMessage = `+${quantityToAdd} "${product.name}" bipado! (Total no carrinho: ${newQty} ${product.unit})`;
+          toastType = 'success';
+        }
+        return updated;
+      } else {
+        // ADD NEW ITEM on 1st scan
+        const newItem: SaleItem = {
+          productId: product.id,
+          productName: product.name,
+          sku: product.sku,
+          barcode: product.barcode,
+          quantity: quantityToAdd,
+          unitPrice: product.salePrice,
+          costPrice: product.costPrice,
+          discount: 0,
+          total: Number((quantityToAdd * product.salePrice).toFixed(2)),
+        };
+        if (!toastMessage) {
+          toastMessage = `"${product.name}" adicionado à lista de venda!`;
+          toastType = 'success';
+        }
+        return [newItem, ...prevCart];
       }
-    } else {
-      if (product.currentStock <= 0 || requestedQty > product.currentStock) {
-        showToast(
-          `Aviso: Quantidade (${requestedQty}) excede o estoque atual (${product.currentStock} ${product.unit}). Venda autorizada.`,
-          'info'
-        );
-      }
+    });
+
+    if (isBlocked) {
+      showToast(toastMessage, toastType);
+      return;
     }
 
     // Barcode Beep & Visual Highlight
@@ -248,58 +309,58 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
       setLastBippedId(prev => (prev === product.id ? null : prev));
     }, 1500);
 
-    if (existingIndex >= 0) {
-      // INCREMENT QUANTITY on subsequent scans
-      const updated = [...cart];
-      const item = updated[existingIndex];
-      const newQty = item.quantity + quantityToAdd;
-      updated[existingIndex] = {
-        ...item,
-        quantity: newQty,
-        total: Number((newQty * item.unitPrice - item.discount).toFixed(2)),
-      };
-      setCart(updated);
-      showToast(
-        `+${quantityToAdd} "${product.name}" bipado! (Total no carrinho: ${newQty} ${product.unit})`,
-        'success'
-      );
-    } else {
-      // ADD NEW ITEM on 1st scan
-      const newItem: SaleItem = {
-        productId: product.id,
-        productName: product.name,
-        sku: product.sku,
-        barcode: product.barcode,
-        quantity: quantityToAdd,
-        unitPrice: product.salePrice,
-        costPrice: product.costPrice,
-        discount: 0,
-        total: Number((quantityToAdd * product.salePrice).toFixed(2)),
-      };
-      setCart(prev => [newItem, ...prev]);
-      showToast(`"${product.name}" adicionado à lista de venda!`, 'success');
+    if (toastMessage) {
+      showToast(toastMessage, toastType);
     }
 
     focusBarcodeInput();
   };
 
-  // Process scanned code directly
+  // Process scanned code directly with debounce protection against hardware stutter
   const processScannedBarcode = (rawCode: string) => {
     const code = rawCode.trim();
     if (!code) return;
 
-    const matched = findProductByBarcodeOrSku(code);
+    const now = Date.now();
+    const lastScan = lastScannedBarcodeRef.current;
+    const DUPLICATE_BOUNCE_THRESHOLD_MS = 450; // Protect against scanner hardware bounce (< 450ms for identical code)
 
-    if (matched) {
-      handleAddToCart(matched, 1);
+    // Rule:
+    // If the scanner hardware fires the EXACT same barcode within < 450ms,
+    // it's an accidental double-read/bounce. Discard duplicate without adding another item!
+    // But if the seller deliberately scans again (> 450ms later), it increases quantity!
+    if (
+      lastScan.code.toLowerCase() === code.toLowerCase() &&
+      now - lastScan.timestamp < DUPLICATE_BOUNCE_THRESHOLD_MS
+    ) {
+      console.warn(`[PDV] Bip duplicado instantâneo evitado (${now - lastScan.timestamp}ms):`, code);
+      setBarcodeInput('');
+      scanBufferRef.current = '';
+      return;
+    }
+
+    // Single-event-tick lock
+    if (isScanProcessingLockRef.current) {
+      return;
+    }
+    isScanProcessingLockRef.current = true;
+    lastScannedBarcodeRef.current = { code, timestamp: now };
+
+    try {
+      const matched = findProductByBarcodeOrSku(code);
+
+      if (matched) {
+        handleAddToCart(matched, 1);
+      } else {
+        showToast(`Código de barras "${code}" não encontrado no catálogo.`, 'error');
+      }
+    } finally {
       setBarcodeInput('');
       scanBufferRef.current = '';
       focusBarcodeInput();
-    } else {
-      showToast(`Código de barras "${code}" não encontrado no catálogo.`, 'error');
-      setBarcodeInput('');
-      scanBufferRef.current = '';
-      focusBarcodeInput();
+      setTimeout(() => {
+        isScanProcessingLockRef.current = false;
+      }, 50);
     }
   };
 
@@ -348,6 +409,7 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
       if (activeEl === barcodeInputRef.current) {
         if (e.key === 'Enter') {
           e.preventDefault();
+          e.stopPropagation();
           processScannedBarcode(barcodeInput);
         }
         return;
@@ -649,32 +711,17 @@ export const PDVPage: React.FC<PDVPageProps> = ({ onNavigate }) => {
                     value={barcodeInput}
                     onChange={e => {
                       const val = e.target.value;
-                      setBarcodeInput(val);
-
                       // If scanner appended newline
                       if (val.includes('\n') || val.includes('\r')) {
-                        processScannedBarcode(val.replace(/[\r\n]/g, ''));
+                        const cleanVal = val.replace(/[\r\n]/g, '').trim();
+                        if (cleanVal) {
+                          processScannedBarcode(cleanVal);
+                        } else {
+                          setBarcodeInput('');
+                        }
                         return;
                       }
-
-                      // Auto-scan debounced on exact barcode/sku match
-                      if (debounceScanTimeoutRef.current) {
-                        clearTimeout(debounceScanTimeoutRef.current);
-                      }
-                      const clean = val.trim();
-                      if (clean.length >= 6) {
-                        debounceScanTimeoutRef.current = setTimeout(() => {
-                          const directMatch = products.find(
-                            p =>
-                              p.status === 'ativo' &&
-                              (p.barcode?.trim().toLowerCase() === clean.toLowerCase() ||
-                               p.sku?.trim().toLowerCase() === clean.toLowerCase())
-                          );
-                          if (directMatch) {
-                            processScannedBarcode(clean);
-                          }
-                        }, 70);
-                      }
+                      setBarcodeInput(val);
                     }}
                     className="w-full pl-8 pr-14 py-2 rounded-xl bg-slate-950 border border-emerald-500/40 text-xs md:text-sm text-white focus:outline-hidden focus:border-emerald-400 focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-500 font-mono shadow-inner"
                   />

@@ -35,9 +35,9 @@ export const OPERATOR_DEFAULT_PERMISSIONS: Permission[] = [
   'fechar_caixa',
   'fazer_suprimento',
   'fazer_sangria',
-  'registrar_entrada',
-  'registrar_saida',
 ];
+
+export const VENDOR_DEFAULT_PERMISSIONS: Permission[] = OPERATOR_DEFAULT_PERMISSIONS;
 
 export const authService = {
   async login(username: string, plainTextPassword: string): Promise<User> {
@@ -206,10 +206,153 @@ export const authService = {
     return newUser;
   },
 
+  async loginWithGoogle(data: { email: string; name?: string; picture?: string }): Promise<User> {
+    const cleanEmail = data.email.trim().toLowerCase();
+    if (!cleanEmail) {
+      throw new Error('E-mail Google inválido.');
+    }
+
+    const users = await databaseService.getAll<User>('users');
+    let user = users.find(
+      u => u.username.toLowerCase() === cleanEmail || u.email?.toLowerCase() === cleanEmail
+    );
+
+    if (user) {
+      if (user.status !== 'ativo') {
+        throw new Error('Este usuário está desativado no sistema.');
+      }
+      user = {
+        ...user,
+        name: data.name ? data.name.trim() : user.name,
+        avatar: data.picture || user.avatar,
+        authProvider: 'google',
+      };
+      await databaseService.save<User>('users', user);
+    } else {
+      user = {
+        id: `usr-google-${Date.now()}`,
+        name: data.name?.trim() || cleanEmail.split('@')[0],
+        username: cleanEmail,
+        email: cleanEmail,
+        avatar: data.picture,
+        authProvider: 'google',
+        passwordHash: '',
+        role: 'OPERADOR', // Vendedor
+        permissions: VENDOR_DEFAULT_PERMISSIONS,
+        status: 'ativo',
+        createdAt: new Date().toISOString(),
+      };
+      await databaseService.save<User>('users', user);
+    }
+
+    localStorage.setItem(SESSION_KEY, user.id);
+    return user;
+  },
+
+  async authenticateAdmin(username: string, plainTextPassword: string): Promise<User> {
+    const cleanUsername = username.trim().toLowerCase();
+    const users = await databaseService.getAll<User>('users');
+    const adminUsers = users.filter(u => u.role === 'ADMINISTRADOR' && u.status === 'ativo');
+
+    let matchedAdmin = adminUsers.find(u => u.username.toLowerCase() === cleanUsername);
+
+    if (!matchedAdmin && adminUsers.length === 1 && cleanUsername === adminUsers[0].username.toLowerCase()) {
+      matchedAdmin = adminUsers[0];
+    }
+
+    if (!matchedAdmin) {
+      throw new Error('Credenciais de administrador incorretas.');
+    }
+
+    const isValid = await verifyPassword(plainTextPassword, matchedAdmin.passwordHash);
+    if (!isValid) {
+      throw new Error('Senha administrativa incorreta.');
+    }
+
+    localStorage.setItem(SESSION_KEY, matchedAdmin.id);
+    return matchedAdmin;
+  },
+
+  async updateAdminCredentials(data: {
+    adminId?: string;
+    newUsername: string;
+    newPassword?: string;
+    newName?: string;
+  }): Promise<User> {
+    const cleanUsername = data.newUsername.trim().toLowerCase();
+    if (!cleanUsername) {
+      throw new Error('O nome de usuário administrativo é obrigatório.');
+    }
+
+    const users = await databaseService.getAll<User>('users');
+    let adminUser = data.adminId ? users.find(u => u.id === data.adminId) : null;
+    if (!adminUser) {
+      adminUser = users.find(u => u.role === 'ADMINISTRADOR');
+    }
+    if (!adminUser) {
+      throw new Error('Usuário administrador não encontrado no sistema.');
+    }
+
+    const usernameConflict = users.find(
+      u => u.id !== adminUser!.id && u.username.toLowerCase() === cleanUsername
+    );
+    if (usernameConflict) {
+      throw new Error(`O usuário "${data.newUsername}" já está em uso.`);
+    }
+
+    let passwordHash = adminUser.passwordHash;
+    if (data.newPassword && data.newPassword.trim()) {
+      if (data.newPassword.length < 4) {
+        throw new Error('A nova senha deve ter pelo menos 4 caracteres.');
+      }
+      passwordHash = await hashPassword(data.newPassword);
+    }
+
+    const updatedAdmin: User = {
+      ...adminUser,
+      name: data.newName ? data.newName.trim() : adminUser.name,
+      username: cleanUsername,
+      passwordHash,
+    };
+
+    await databaseService.save<User>('users', updatedAdmin);
+
+    // Keep active session updated
+    const currentUserId = localStorage.getItem(SESSION_KEY);
+    if (currentUserId === adminUser.id) {
+      localStorage.setItem(SESSION_KEY, updatedAdmin.id);
+    }
+
+    return updatedAdmin;
+  },
+
+  async requireAdmin(actionDescription: string = 'esta ação'): Promise<User> {
+    const user = await this.getCurrentUser();
+    if (!user || user.role !== 'ADMINISTRADOR') {
+      throw new Error(`Acesso negado: apenas o Administrador possui permissão para ${actionDescription}.`);
+    }
+    return user;
+  },
+
+  async requirePermission(permission: Permission, actionDescription: string = 'esta ação'): Promise<User> {
+    const user = await this.getCurrentUser();
+    if (!user) {
+      throw new Error('Acesso negado: nenhum usuário autenticado.');
+    }
+    if (user.role === 'ADMINISTRADOR') {
+      return user;
+    }
+    if (!user.permissions.includes(permission)) {
+      throw new Error(`Acesso negado: você não possui permissão para ${actionDescription}.`);
+    }
+    return user;
+  },
+
   async updateUser(
     id: string,
     data: {
       name?: string;
+      username?: string;
       role?: UserRole;
       permissions?: Permission[];
       status?: 'ativo' | 'inativo';
@@ -218,6 +361,16 @@ export const authService = {
   ): Promise<User> {
     const user = await databaseService.getById<User>('users', id);
     if (!user) throw new Error('Usuário não encontrado.');
+
+    let cleanUsername = user.username;
+    if (data.username && data.username.trim()) {
+      cleanUsername = data.username.trim().toLowerCase();
+      const users = await databaseService.getAll<User>('users');
+      const conflict = users.find(u => u.id !== id && u.username.toLowerCase() === cleanUsername);
+      if (conflict) {
+        throw new Error(`O nome de usuário "${data.username}" já está em uso.`);
+      }
+    }
 
     let passwordHash = user.passwordHash;
     if (data.newPassword && data.newPassword.trim()) {
@@ -230,6 +383,7 @@ export const authService = {
     const updatedUser: User = {
       ...user,
       name: data.name !== undefined ? data.name.trim() : user.name,
+      username: cleanUsername,
       role: data.role !== undefined ? data.role : user.role,
       permissions: data.permissions !== undefined ? data.permissions : user.permissions,
       status: data.status !== undefined ? data.status : user.status,

@@ -218,7 +218,19 @@ export const MovementsPage: React.FC = () => {
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-semibold text-white">{m.productName}</div>
-                      <div className="text-[10px] text-slate-500 font-mono">SKU: {m.sku || m.productSku || '-'}</div>
+                      <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500 font-mono">
+                        <span>SKU: {m.sku || m.productSku || '-'}</span>
+                        {m.lotNumber && (
+                          <span className="px-1.5 py-0.5 rounded bg-slate-800 text-amber-400 border border-slate-700">
+                            Lote: {m.lotNumber}
+                          </span>
+                        )}
+                        {m.barcodeUsed && (
+                          <span className="px-1.5 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-500/20">
+                            Código: {m.barcodeUsed}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-right font-mono font-bold text-white">
                       {m.type === 'ENTRADA' ? `+${m.quantity}` : `-${m.quantity}`}

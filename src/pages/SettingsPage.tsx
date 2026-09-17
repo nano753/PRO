@@ -14,6 +14,8 @@ import {
   FileSpreadsheet,
   Eye,
   Barcode,
+  KeyRound,
+  ShieldCheck,
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -21,6 +23,7 @@ import { backupService } from '../services/backupService';
 import { databaseService } from '../services/databaseService';
 import { CompanySettings } from '../types';
 import { CompanyLogoUploader } from '../components/common/CompanyLogoUploader';
+import { AdminCredentialsModal } from '../components/common/AdminCredentialsModal';
 import {
   formatCNPJ,
   formatCNPJOrCPF,
@@ -45,6 +48,9 @@ export const SettingsPage: React.FC = () => {
 
   // Danger modal
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+
+  // Admin Credentials modal
+  const [isAdminCredsModalOpen, setIsAdminCredsModalOpen] = useState(false);
 
   useEffect(() => {
     setFormData(companySettings);
@@ -515,6 +521,45 @@ export const SettingsPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Section: Admin Security & Master Credentials */}
+      <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 space-y-6">
+        <div className="flex items-center gap-3 pb-4 border-b border-slate-800">
+          <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">
+            <KeyRound className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-white">Segurança & Credenciais do Administrador</h2>
+            <p className="text-xs text-slate-400">
+              Gerencie o usuário e a senha mestra de acesso administrativo do ESTOQUE PRO.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-slate-950 border border-slate-800">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-400 uppercase">Acesso Administrador:</span>
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Protegido por Senha
+              </span>
+            </div>
+            <p className="text-xs text-slate-400">
+              Altere seu nome de usuário ou senha para garantir que apenas administradores realizem modificações no estoque e configurações.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsAdminCredsModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs md:text-sm font-semibold shadow-md shadow-blue-600/20 transition cursor-pointer self-start sm:self-auto shrink-0"
+          >
+            <KeyRound className="w-4 h-4" />
+            <span>Alterar Usuário e Senha</span>
+          </button>
+        </div>
+      </div>
+
       {/* Section 3: Backup & Restore */}
       <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 space-y-6">
         <div className="flex items-center gap-3 pb-4 border-b border-slate-800">
@@ -636,6 +681,12 @@ export const SettingsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Admin Credentials Modal */}
+      <AdminCredentialsModal
+        isOpen={isAdminCredsModalOpen}
+        onClose={() => setIsAdminCredsModalOpen(false)}
+      />
     </div>
   );
 };

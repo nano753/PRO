@@ -17,8 +17,15 @@ import { UsersPage } from './pages/UsersPage';
 import { SettingsPage } from './pages/SettingsPage';
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
-  const [currentPage, setCurrentPage] = useState<PageId>('dashboard');
+  const { isAuthenticated, isLoading, isAdmin } = useAuth();
+  const [currentPage, setCurrentPage] = useState<PageId>('pdv');
+
+  // When not authenticated as admin, keep user strictly on the PDV sales page
+  useEffect(() => {
+    if (!isAdmin && currentPage !== 'pdv') {
+      setCurrentPage('pdv');
+    }
+  }, [isAdmin, currentPage]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -36,13 +43,13 @@ const AppContent: React.FC = () => {
       if (e.key === 'F1') {
         e.preventDefault();
         setCurrentPage('pdv');
-      } else if (e.key === 'F2') {
+      } else if (e.key === 'F2' && isAdmin) {
         e.preventDefault();
         setCurrentPage('produtos');
-      } else if (e.key === 'F3') {
+      } else if (e.key === 'F3' && isAdmin) {
         e.preventDefault();
         setCurrentPage('caixa');
-      } else if (e.key === 'F4') {
+      } else if (e.key === 'F4' && isAdmin) {
         e.preventDefault();
         setCurrentPage('dashboard');
       }
@@ -50,7 +57,7 @@ const AppContent: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isAdmin]);
 
   if (isLoading) {
     return (

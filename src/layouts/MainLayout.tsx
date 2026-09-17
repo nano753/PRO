@@ -22,11 +22,18 @@ import {
   X,
   Sparkles,
   Download,
+  Shield,
+  ShieldCheck,
+  KeyRound,
+  ChevronDown,
+  Lock,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useApp } from '../contexts/AppContext';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { AdminAuthModal } from '../components/common/AdminAuthModal';
+import { AdminCredentialsModal } from '../components/common/AdminCredentialsModal';
 
 export type PageId =
   | 'dashboard'
@@ -54,7 +61,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   onNavigate,
   children,
 }) => {
-  const { user, logout, hasPermission, canManageUsers } = useAuth();
+  const { user, logout, hasPermission, canManageUsers, isAdmin, switchToVendorMode } = useAuth();
   const {
     settings,
     updateSettings,
@@ -63,6 +70,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     showDemoPrompt,
     loadDemoData,
     skipDemoData,
+    showToast,
     toasts,
     removeToast,
   } = useApp();
@@ -70,6 +78,21 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showIOSGuide, setShowIOSGuide] = useState(false);
+
+  // Admin Modals & State
+  const [isAdminAuthModalOpen, setIsAdminAuthModalOpen] = useState(false);
+  const [isAdminCredentialsModalOpen, setIsAdminCredentialsModalOpen] = useState(false);
+  const [adminMenuDropdownOpen, setAdminMenuDropdownOpen] = useState(false);
+  const [pendingAdminTargetPage, setPendingAdminTargetPage] = useState<PageId | null>(null);
+
+  const adminOnlyPages: PageId[] = [
+    'entrada',
+    'saida',
+    'relatorios',
+    'usuarios',
+    'backup',
+    'configuracoes',
+  ];
 
   const navItems = [
     { id: 'dashboard' as PageId, label: 'Dashboard', icon: LayoutDashboard },
@@ -88,6 +111,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   ];
 
   const handleNavClick = (page: PageId) => {
+    if (adminOnlyPages.includes(page) && !isAdmin) {
+      setPendingAdminTargetPage(page);
+      setIsAdminAuthModalOpen(true);
+      setMobileMenuOpen(false);
+      return;
+    }
     onNavigate(page);
     setMobileMenuOpen(false);
   };
@@ -124,6 +153,31 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Admin Quick Action Button on Mobile */}
+          {isAdmin ? (
+            <button
+              onClick={() => setIsAdminCredentialsModalOpen(true)}
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+              title="Admin Ativo - Toque para gerenciar credenciais"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Admin Ativo</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setPendingAdminTargetPage('dashboard');
+                setIsAdminAuthModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-xl font-bold bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/40 shadow-xs active:scale-95"
+              title="Acesso à Pasta de Administração"
+            >
+              <Shield className="w-3.5 h-3.5 text-white" />
+              <span>Admin</span>
+              <Lock className="w-2.5 h-2.5 text-blue-200" />
+            </button>
+          )}
+
           {/* Online/Offline Badge */}
           <span
             className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium ${
@@ -211,39 +265,136 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         </div>
 
         {/* Navigation Menu Links */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
-          {navItems.map(item => {
-            if (item.permission && !hasPermission(item.permission)) {
-              return null;
-            }
+        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+          {!isAdmin ? (
+            /* VENDOR / USER MODE - ONLY PDV IS VISIBLE */
+            <div className="space-y-3">
+              {/* Primary PDV Button */}
+              {navItems
+                .filter(i => i.id === 'pdv')
+                .map(item => {
+                  const isActive = currentPage === item.id;
+                  const Icon = item.icon;
 
-            const isActive = currentPage === item.id;
-            const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => handleNavClick(item.id)}
+                      className="w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs md:text-sm font-bold transition-all bg-blue-600 text-white shadow-md shadow-blue-600/30 cursor-pointer"
+                    >
+                      <Icon className="w-5 h-5 shrink-0 text-white" />
+                      <div className="text-left flex-1 min-w-0">
+                        <span className="block font-bold">{item.label}</span>
+                        <span className="block text-[11px] text-blue-200 font-normal">Frente de Caixa Ativo</span>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-white/20 text-white font-bold">
+                        ATIVO
+                      </span>
+                    </button>
+                  );
+                })}
 
-            return (
-              <button
-                key={item.id}
-                onClick={() => handleNavClick(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs md:text-sm font-medium transition-colors ${
-                  isActive
-                    ? item.highlight
-                      ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                      : 'bg-slate-800 text-white border-l-4 border-blue-500'
-                    : item.highlight
-                    ? 'bg-blue-900/30 text-blue-300 hover:bg-blue-900/50'
-                    : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
-                }`}
-              >
-                <Icon className={`w-4 h-4 shrink-0 ${item.badgeColor || (isActive ? 'text-white' : 'text-slate-400')}`} />
-                <span className="truncate">{item.label}</span>
-                {item.highlight && !isActive && (
-                  <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-md bg-blue-500/20 text-blue-400 font-bold">
-                    PDV
+              {/* PASTA DE ADMINISTRAÇÃO (LOCKED UNTIL ADMIN CREDENTIALS ENTERED) */}
+              <div className="pt-3 border-t border-slate-800/80">
+                <div className="px-1 mb-2 flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Acesso Gerencial
                   </span>
-                )}
-              </button>
-            );
-          })}
+                  <span className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                    <Lock className="w-2.5 h-2.5 text-amber-400" />
+                    Bloqueado
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingAdminTargetPage('dashboard');
+                    setIsAdminAuthModalOpen(true);
+                    setMobileMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-950/80 hover:bg-slate-800 border border-blue-500/30 hover:border-blue-500/60 text-left transition-all group cursor-pointer shadow-sm active:scale-98"
+                >
+                  <div className="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 group-hover:bg-blue-600 group-hover:text-white transition shrink-0">
+                    <Shield className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-white font-bold text-xs flex items-center gap-1.5">
+                      <span>Pasta de Administração</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 group-hover:text-slate-300 truncate">
+                      Digitar usuário e senha admin
+                    </div>
+                  </div>
+                  <Lock className="w-4 h-4 text-slate-500 group-hover:text-blue-400 shrink-0" />
+                </button>
+
+                <div className="mt-3 p-3 rounded-xl bg-slate-950/40 border border-slate-800/60 text-[11px] text-slate-400 leading-relaxed">
+                  <div className="flex items-center gap-1.5 text-slate-300 font-semibold mb-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                    <span>Modo Vendedor (PDV)</span>
+                  </div>
+                  O vendedor tem acesso ao PDV para registrar vendas. As demais funções (produtos, estoque, caixa, relatórios e configurações) só aparecem após o administrador desbloquear o painel.
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* ADMIN MODE - ALL FUNCTIONS UNLOCKED AND VISIBLE */
+            <div className="space-y-1">
+              <div className="mb-2 p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span className="truncate">Painel Admin Liberado</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    switchToVendorMode();
+                    onNavigate('pdv');
+                    showToast('Painel administrativo bloqueado. Modo PDV ativado.', 'info');
+                  }}
+                  className="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-rose-950 hover:text-rose-300 text-slate-300 border border-slate-700 font-semibold flex items-center gap-1 transition cursor-pointer active:scale-95"
+                  title="Bloquear painel e voltar ao PDV"
+                >
+                  <Lock className="w-2.5 h-2.5 text-amber-400" />
+                  <span>Bloquear</span>
+                </button>
+              </div>
+
+              {navItems.map(item => {
+                if (item.permission && !hasPermission(item.permission)) {
+                  return null;
+                }
+
+                const isActive = currentPage === item.id;
+                const Icon = item.icon;
+
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleNavClick(item.id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs md:text-sm font-medium transition-colors ${
+                      isActive
+                        ? item.highlight
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                          : 'bg-slate-800 text-white border-l-4 border-blue-500'
+                        : item.highlight
+                        ? 'bg-blue-900/30 text-blue-300 hover:bg-blue-900/50'
+                        : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 shrink-0 ${item.badgeColor || (isActive ? 'text-white' : 'text-slate-400')}`} />
+                    <span className="truncate">{item.label}</span>
+                    {item.highlight && !isActive && (
+                      <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-md bg-blue-500/20 text-blue-400 font-bold">
+                        PDV
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </nav>
 
         {/* Bottom User Profile & Actions */}
@@ -342,6 +493,79 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
+            {/* ADMIN ACCESS BUTTON / DROPDOWN */}
+            {isAdmin ? (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setAdminMenuDropdownOpen(!adminMenuDropdownOpen)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-950/80 hover:bg-emerald-900 text-emerald-400 border border-emerald-500/40 text-xs font-bold transition shadow-xs cursor-pointer active:scale-95"
+                  title="Administração Ativa"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>ADMIN ATIVO</span>
+                  <ChevronDown className="w-3 h-3 text-emerald-400 ml-0.5" />
+                </button>
+                {adminMenuDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl py-1.5 z-50 animate-in fade-in">
+                    <div className="px-3.5 py-2 border-b border-slate-800 text-[11px] text-slate-400 font-medium">
+                      Painel de Gestão Liberado
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAdminMenuDropdownOpen(false);
+                        setIsAdminCredentialsModalOpen(true);
+                      }}
+                      className="w-full px-3.5 py-2.5 text-left text-xs text-slate-200 hover:bg-slate-800 flex items-center gap-2 cursor-pointer transition font-medium"
+                    >
+                      <KeyRound className="w-4 h-4 text-blue-400" />
+                      <span>Alterar Usuário e Senha Admin</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAdminMenuDropdownOpen(false);
+                        onNavigate('configuracoes');
+                      }}
+                      className="w-full px-3.5 py-2.5 text-left text-xs text-slate-200 hover:bg-slate-800 flex items-center gap-2 cursor-pointer transition font-medium"
+                    >
+                      <Settings className="w-4 h-4 text-slate-400" />
+                      <span>Configurações da Empresa</span>
+                    </button>
+                    <div className="my-1 border-t border-slate-800" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAdminMenuDropdownOpen(false);
+                        switchToVendorMode();
+                        onNavigate('pdv');
+                        showToast('Modo Vendedor ativado. O painel administrativo foi bloqueado com sucesso.', 'info');
+                      }}
+                      className="w-full px-3.5 py-2.5 text-left text-xs text-amber-400 hover:bg-amber-950/40 flex items-center gap-2 cursor-pointer transition font-medium"
+                    >
+                      <Lock className="w-4 h-4 text-amber-400" />
+                      <span>Bloquear Admin (Modo Vendedor)</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingAdminTargetPage('dashboard');
+                  setIsAdminAuthModalOpen(true);
+                }}
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/40 text-xs font-bold transition shadow-md shadow-blue-600/20 cursor-pointer active:scale-95"
+                title="Entrar na Pasta de Administração com usuário e senha"
+              >
+                <Shield className="w-3.5 h-3.5 text-white" />
+                <span>PASTA DE ADMINISTRAÇÃO</span>
+                <Lock className="w-3 h-3 text-blue-200" />
+              </button>
+            )}
+
             {!isInstalled && isInstallable && (
               <button
                 onClick={install}
@@ -427,6 +651,24 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           </div>
         </div>
       )}
+
+      {/* Admin Auth Modal */}
+      <AdminAuthModal
+        isOpen={isAdminAuthModalOpen}
+        onClose={() => setIsAdminAuthModalOpen(false)}
+        onSuccess={() => {
+          if (pendingAdminTargetPage) {
+            onNavigate(pendingAdminTargetPage);
+            setPendingAdminTargetPage(null);
+          }
+        }}
+      />
+
+      {/* Admin Credentials Modal */}
+      <AdminCredentialsModal
+        isOpen={isAdminCredentialsModalOpen}
+        onClose={() => setIsAdminCredentialsModalOpen(false)}
+      />
 
       {/* Toast Notifications */}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm pointer-events-none print:hidden">

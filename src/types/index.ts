@@ -1,4 +1,4 @@
-export type UserRole = 'ADMINISTRADOR' | 'OPERADOR';
+export type UserRole = 'ADMINISTRADOR' | 'OPERADOR' | 'VENDEDOR';
 
 export type Permission =
   | 'ver_produtos'
@@ -24,6 +24,9 @@ export interface User {
   id: string;
   name: string;
   username: string;
+  email?: string;
+  avatar?: string;
+  authProvider?: 'local' | 'google';
   passwordHash: string;
   role: UserRole;
   permissions: Permission[];
@@ -40,10 +43,26 @@ export interface Category {
 
 export type ProductUnit = 'UN' | 'KG' | 'LT' | 'CX' | 'PC' | 'M' | 'PAR' | 'G' | 'ML';
 
+export interface ProductLot {
+  id: string;
+  lotNumber: string; // Ex: LOTE-2026/A, LT-9821
+  barcode?: string; // Código de barras ou QR Code do lote / caixa
+  quantity: number; // Quantidade adicionada neste lote
+  unitCost?: number;
+  expiryDate?: string; // Validade (YYYY-MM-DD)
+  manufacturingDate?: string; // Data de fabricação (YYYY-MM-DD)
+  supplier?: string;
+  notes?: string;
+  createdAt: string;
+}
+
 export interface Product {
   id: string;
   sku: string;
   barcode: string;
+  additionalBarcodes?: string[]; // Códigos adicionais / QR codes de novos lotes ou caixas
+  lots?: ProductLot[]; // Histórico de lotes vinculados ao produto
+  boxQuantity?: number; // Quantidade padrão de unidades por caixa (ex: 24)
   name: string;
   categoryId: string;
   categoryName?: string;
@@ -102,6 +121,9 @@ export interface Movement {
   observation?: string;
   notes?: string;
   supplier?: string;
+  lotNumber?: string;
+  barcodeUsed?: string;
+  expiryDate?: string;
   saleId?: string;
   createdAt?: string;
 }
