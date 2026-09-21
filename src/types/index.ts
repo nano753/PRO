@@ -26,7 +26,7 @@ export interface User {
   username: string;
   email?: string;
   avatar?: string;
-  authProvider?: 'local' | 'google';
+  authProvider?: 'local';
   passwordHash: string;
   role: UserRole;
   permissions: Permission[];

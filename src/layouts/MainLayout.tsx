@@ -227,7 +227,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 {settings.companyName || settings.name || 'ESTOQUE PRO'}
               </h1>
               <p className="text-[11px] text-blue-400 font-medium truncate">
-                {settings.document ? `CNPJ: ${settings.document}` : 'PDV + Estoque + Caixa'}
+                {settings.document
+                  ? `${settings.document.replace(/\D/g, '').length <= 11 ? 'CPF' : 'CNPJ'}: ${settings.document}`
+                  : 'PDV + Estoque + Caixa'}
               </p>
             </div>
           </div>
@@ -458,9 +460,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
               <div className="overflow-hidden">
                 <div className="flex items-center gap-1">
                   <p className="text-xs font-semibold text-white truncate">{user?.name || 'Operador'}</p>
-                  {user?.authProvider === 'google' && (
-                    <span className="text-[9px] px-1 rounded bg-blue-500/20 text-blue-400 font-bold shrink-0">G</span>
-                  )}
                 </div>
                 <p className="text-[10px] text-slate-400 capitalize truncate">
                   {user?.role === 'ADMINISTRADOR' ? 'Administrador' : 'Operador (PDV)'}

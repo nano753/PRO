@@ -115,7 +115,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               </h1>
               {settings.document && (
                 <p className="text-[11px] font-mono font-medium text-slate-700">
-                  CNPJ: {settings.document}
+                  {(settings.document.replace(/\D/g, '').length <= 11 ? 'CPF: ' : 'CNPJ: ') + settings.document}
                 </p>
               )}
               {settings.address && (

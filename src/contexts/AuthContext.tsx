@@ -1,8 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { authService } from '../services/authService';
 import { Permission, User } from '../types';
-import { auth } from '../services/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
 
 interface AuthContextType {
   user: User | null;
@@ -12,7 +10,6 @@ interface AuthContextType {
   isVendor: boolean;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<void>;
-  loginWithGoogle: (data?: { email?: string; name?: string; picture?: string }) => Promise<void>;
   authenticateAdmin: (username: string, password: string) => Promise<User>;
   lockAdmin: () => Promise<void>;
   updateAdminCredentials: (data: { newUsername: string; newPassword?: string; newName?: string }) => Promise<User>;
@@ -56,42 +53,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     loadUser();
-
-    // Listen to Firebase Auth state changes
-    const unsubscribe = onAuthStateChanged(auth, async firebaseUser => {
-      if (firebaseUser && firebaseUser.email) {
-        try {
-          const current = await authService.getCurrentUser();
-          if (current) {
-            setUser(current);
-          } else {
-            const loggedIn = await authService.loginWithGoogle({
-              email: firebaseUser.email,
-              name: firebaseUser.displayName || undefined,
-              picture: firebaseUser.photoURL || undefined,
-            });
-            setUser(loggedIn);
-          }
-        } catch (err) {
-          console.error('Error handling auth state changed:', err);
-        }
-      }
-    });
-
-    return () => unsubscribe();
   }, []);
 
   const login = async (username: string, password: string) => {
     const loggedIn = await authService.login(username, password);
     setUser(loggedIn);
     // When logging in normally, keep admin locked so interface begins in PDV mode
-    setIsAdminUnlocked(false);
-    sessionStorage.removeItem('estoque_pro_admin_unlocked');
-  };
-
-  const loginWithGoogle = async (data?: { email?: string; name?: string; picture?: string }) => {
-    const loggedIn = await authService.loginWithGoogle(data);
-    setUser(loggedIn);
     setIsAdminUnlocked(false);
     sessionStorage.removeItem('estoque_pro_admin_unlocked');
   };
@@ -183,7 +150,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isVendor,
         isLoading,
         login,
-        loginWithGoogle,
         authenticateAdmin,
         lockAdmin,
         updateAdminCredentials,

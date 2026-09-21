@@ -26,10 +26,10 @@ import { CompanyLogoUploader } from '../components/common/CompanyLogoUploader';
 import { AdminCredentialsModal } from '../components/common/AdminCredentialsModal';
 import {
   formatCNPJ,
+  formatCPF,
   formatCNPJOrCPF,
   formatPhone,
-  validateCNPJ,
-  isValidCNPJ,
+  validateDocument,
 } from '../utils/formatters';
 import { DEFAULT_SETTINGS } from '../database/initialData';
 
@@ -39,6 +39,11 @@ export const SettingsPage: React.FC = () => {
 
   // Settings form state
   const [formData, setFormData] = useState<CompanySettings>(companySettings || DEFAULT_SETTINGS);
+  const [docType, setDocType] = useState<'CPF' | 'CNPJ'>(() => {
+    const raw = (companySettings?.document || '').replace(/\D/g, '');
+    return raw.length > 11 ? 'CNPJ' : 'CPF';
+  });
+  const docValidation = validateDocument(formData.document, docType);
   const [storageUsage, setStorageUsage] = useState<string>('Calculando...');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -54,6 +59,10 @@ export const SettingsPage: React.FC = () => {
 
   useEffect(() => {
     setFormData(companySettings);
+    if (companySettings?.document) {
+      const raw = companySettings.document.replace(/\D/g, '');
+      setDocType(raw.length > 11 ? 'CNPJ' : 'CPF');
+    }
     checkStorage();
   }, [companySettings]);
 
@@ -75,10 +84,10 @@ export const SettingsPage: React.FC = () => {
   const handleSaveCompany = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validação rigorosa de CNPJ para garantir consistência dos dados fiscais
-    const cnpjCheck = validateCNPJ(formData.document);
-    if (!cnpjCheck.isValid) {
-      showToast(`CNPJ inválido: ${cnpjCheck.message}. Por favor, informe um CNPJ válido.`, 'error');
+    // Validação rigorosa de CPF ou CNPJ para garantir autenticidade dos dados fiscais
+    const docCheck = validateDocument(formData.document);
+    if (!docCheck.isValid) {
+      showToast(`Documento inválido: ${docCheck.message}. Por favor, informe um CPF ou CNPJ válido.`, 'error');
       return;
     }
 
@@ -201,61 +210,99 @@ export const SettingsPage: React.FC = () => {
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-xs font-semibold text-slate-300">
-                  CNPJ da Empresa *
+                  {docType === 'CPF' ? 'CPF do Responsável / MEI *' : 'CNPJ da Empresa *'}
                 </label>
-                {formData.document && (
+                {formData.document ? (
                   <span
                     className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${
-                      isValidCNPJ(formData.document)
+                      docValidation.isValid
                         ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                        : formData.document.replace(/\D/g, '').length === 14
+                        : docValidation.type === 'INVALIDO'
                         ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                         : 'bg-slate-800 text-slate-400 border border-slate-700'
                     }`}
                   >
-                    {isValidCNPJ(formData.document) ? (
+                    {docValidation.isValid ? (
                       <>
                         <CheckCircle2 className="w-3 h-3" />
-                        CNPJ Válido
+                        {docValidation.message}
                       </>
-                    ) : formData.document.replace(/\D/g, '').length === 14 ? (
+                    ) : docValidation.type === 'INVALIDO' ? (
                       <>
                         <AlertTriangle className="w-3 h-3" />
-                        CNPJ Inválido
+                        {docValidation.message}
                       </>
                     ) : (
-                      `${formData.document.replace(/\D/g, '').length}/14 dígitos`
+                      docValidation.message
                     )}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-500">
+                    {docType === 'CPF' ? '11 dígitos obrigatórios' : '14 dígitos obrigatórios'}
                   </span>
                 )}
               </div>
+
+              {/* Selector de Tipo de Documento */}
+              <div className="grid grid-cols-2 gap-1 p-1 bg-slate-950 border border-slate-800 rounded-xl mb-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDocType('CPF');
+                    setFormData(prev => ({ ...prev, document: formatCPF(prev.document || '') }));
+                  }}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                    docType === 'CPF'
+                      ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                  }`}
+                >
+                  <span>CPF</span>
+                  <span className="text-[10px] opacity-75">(Pessoa Física / MEI)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDocType('CNPJ');
+                    setFormData(prev => ({ ...prev, document: formatCNPJ(prev.document || '') }));
+                  }}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                    docType === 'CNPJ'
+                      ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                  }`}
+                >
+                  <span>CNPJ</span>
+                  <span className="text-[10px] opacity-75">(Empresa / PJ)</span>
+                </button>
+              </div>
+
               <input
                 type="text"
                 required
                 value={formData.document || ''}
-                onChange={e =>
-                  setFormData({
-                    ...formData,
-                    document: formatCNPJ(e.target.value),
-                  })
-                }
-                placeholder="00.000.000/0000-00"
+                onChange={e => {
+                  const raw = e.target.value.replace(/\D/g, '');
+                  if (raw.length > 11 && docType === 'CPF') {
+                    setDocType('CNPJ');
+                    setFormData({ ...formData, document: formatCNPJ(e.target.value) });
+                  } else if (docType === 'CPF') {
+                    setFormData({ ...formData, document: formatCPF(e.target.value) });
+                  } else {
+                    setFormData({ ...formData, document: formatCNPJ(e.target.value) });
+                  }
+                }}
+                placeholder={docType === 'CPF' ? '000.000.000-00' : '00.000.000/0000-00'}
                 className={`w-full px-3 py-2 rounded-xl bg-slate-950 border text-sm font-mono text-white transition focus:outline-hidden ${
-                  isValidCNPJ(formData.document)
+                  docValidation.isValid
                     ? 'border-emerald-500/60 focus:border-emerald-500'
-                    : formData.document && formData.document.replace(/\D/g, '').length === 14
+                    : docValidation.type === 'INVALIDO'
                     ? 'border-rose-500/70 focus:border-rose-500'
                     : 'border-slate-700 focus:border-blue-500'
                 }`}
               />
-              {formData.document && !isValidCNPJ(formData.document) && formData.document.replace(/\D/g, '').length === 14 && (
-                <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3 shrink-0" />
-                  Dígitos verificadores inválidos perante a Receita Federal.
-                </p>
-              )}
             </div>
 
             <div>
@@ -339,7 +386,8 @@ export const SettingsPage: React.FC = () => {
                 {formData.companyName || formData.name || 'NOME DA EMPRESA'}
               </h3>
               <p className="text-[10px] text-slate-600 font-semibold mt-0.5">
-                CNPJ: {formData.document || '00.000.000/0000-00'}
+                {((formData.document || '').replace(/\D/g, '').length <= 11 ? 'CPF: ' : 'CNPJ: ') +
+                  (formData.document || '000.000.000-00 / CNPJ')}
               </p>
               {formData.address && (
                 <p className="text-[9px] text-slate-500 leading-tight mt-0.5">{formData.address}</p>

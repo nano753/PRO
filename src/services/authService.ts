@@ -2,9 +2,9 @@ import { databaseService } from './databaseService';
 import { hashPassword, verifyPassword } from '../utils/crypto';
 import { CompanySettings, Permission, User, UserRole } from '../types';
 import { DEFAULT_SETTINGS } from '../database/initialData';
-import { isValidCNPJ } from '../utils/formatters';
-import { auth, googleProvider } from './firebase';
-import { signInWithPopup, signOut } from 'firebase/auth';
+import { validateDocument } from '../utils/formatters';
+import { auth } from './firebase';
+import { signOut } from 'firebase/auth';
 
 const SESSION_KEY = 'estoque_pro_current_user_id';
 
@@ -101,10 +101,11 @@ export const authService = {
       throw new Error('O nome da empresa é obrigatório.');
     }
     if (!cleanDocument) {
-      throw new Error('O CNPJ da empresa é obrigatório.');
+      throw new Error('O CPF ou CNPJ é obrigatório.');
     }
-    if (!isValidCNPJ(cleanDocument)) {
-      throw new Error('O CNPJ informado é inválido perante os dígitos verificadores da Receita Federal.');
+    const docCheck = validateDocument(cleanDocument);
+    if (!docCheck.isValid) {
+      throw new Error(`Documento inválido: ${docCheck.message}.`);
     }
     if (!cleanAdminName || !cleanAdminUsername) {
       throw new Error('Nome e usuário do administrador são obrigatórios.');
@@ -211,76 +212,6 @@ export const authService = {
 
     await databaseService.save<User>('users', newUser);
     return newUser;
-  },
-
-  async loginWithGoogle(data?: { email?: string; name?: string; picture?: string }): Promise<User> {
-    let email = data?.email?.trim().toLowerCase() || '';
-    let name = data?.name?.trim();
-    let picture = data?.picture;
-    let uid = '';
-
-    if (!email) {
-      // Trigger real Firebase Google Popup Login
-      const result = await signInWithPopup(auth, googleProvider);
-      const googleUser = result.user;
-      email = (googleUser.email || '').trim().toLowerCase();
-      name = googleUser.displayName || email.split('@')[0] || 'Usuário Google';
-      picture = googleUser.photoURL || undefined;
-      uid = googleUser.uid;
-    }
-
-    if (!email) {
-      throw new Error('Não foi possível obter o e-mail da conta Google.');
-    }
-
-    const users = await databaseService.getAll<User>('users');
-    let user = users.find(
-      u =>
-        u.username.toLowerCase() === email ||
-        u.email?.toLowerCase() === email ||
-        (uid && u.id === uid)
-    );
-
-    // E-mail do administrador cadastrado no projeto
-    const isSuperAdmin =
-      email === 'lfagundes192168@gmail.com' || email.includes('admin');
-
-    if (user) {
-      if (user.status !== 'ativo') {
-        throw new Error('Este usuário está desativado no sistema.');
-      }
-      user = {
-        ...user,
-        name: name || user.name,
-        avatar: picture || user.avatar,
-        email,
-        authProvider: 'google',
-        role: isSuperAdmin ? 'ADMINISTRADOR' : user.role,
-        permissions: isSuperAdmin ? ALL_PERMISSIONS : user.permissions,
-      };
-      await databaseService.save<User>('users', user);
-    } else {
-      user = {
-        id: uid || `usr-google-${Date.now()}`,
-        name: name || email.split('@')[0],
-        username: email,
-        email,
-        avatar: picture,
-        authProvider: 'google',
-        passwordHash: '',
-        role: isSuperAdmin ? 'ADMINISTRADOR' : 'OPERADOR', // Vendedor
-        permissions: isSuperAdmin ? ALL_PERMISSIONS : VENDOR_DEFAULT_PERMISSIONS,
-        status: 'ativo',
-        createdAt: new Date().toISOString(),
-      };
-      await databaseService.save<User>('users', user);
-    }
-
-    localStorage.setItem(SESSION_KEY, user.id);
-    databaseService.syncWithCloud().catch(err => {
-      console.warn('Background cloud sync after Google login:', err);
-    });
-    return user;
   },
 
   async authenticateAdmin(username: string, plainTextPassword: string): Promise<User> {

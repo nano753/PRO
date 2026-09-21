@@ -63,8 +63,8 @@ export const SalesPage: React.FC = () => {
       setIsCancelling(true);
       await salesService.cancelSale(
         saleToCancel.id,
-        cancelReason,
-        user?.name || user?.username || 'operador'
+        user?.name || user?.username || 'operador',
+        cancelReason
       );
       showToast(`Venda #${saleToCancel.saleNumber} cancelada. Estoque estornado!`, 'success');
       setSaleToCancel(null);

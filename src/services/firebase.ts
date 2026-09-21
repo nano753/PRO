@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { getAuth, signOut, signInAnonymously } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -8,10 +8,19 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 /* CRITICAL: The app will break without specifying firestoreDatabaseId */
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({
-  prompt: 'select_account',
-});
+
+// Ensure Firebase is authenticated so Firestore rules (isSignedIn) pass seamlessly
+export async function ensureAuth() {
+  if (!auth.currentUser) {
+    try {
+      await signInAnonymously(auth);
+    } catch (e) {
+      // Fallback silently if offline or anonymous auth not enabled
+      console.warn('Silent anonymous auth fallback:', e);
+    }
+  }
+}
+
 
 export enum OperationType {
   CREATE = 'create',

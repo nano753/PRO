@@ -117,34 +117,36 @@ export const salesService = {
     // Save sale
     await databaseService.save<Sale>('sales', newSale);
 
-    // Update product stocks and create movement records
-    for (const item of productsToUpdate) {
-      const updatedProduct: Product = {
-        ...item.product,
-        currentStock: item.newStock,
-        updatedAt: now.toISOString(),
-      };
-      await databaseService.save<Product>('products', updatedProduct);
+    // Update product stocks and create movement records concurrently
+    await Promise.all(
+      productsToUpdate.map(async item => {
+        const updatedProduct: Product = {
+          ...item.product,
+          currentStock: item.newStock,
+          updatedAt: now.toISOString(),
+        };
+        await databaseService.save<Product>('products', updatedProduct);
 
-      const saleItem = input.items.find(i => i.productId === item.product.id)!;
-      const movement: Movement = {
-        id: `mov-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-        productId: item.product.id,
-        productName: item.product.name,
-        productSku: item.product.sku,
-        type: 'SAIDA',
-        quantity: item.soldQty,
-        unitCostOrPrice: saleItem.unitPrice,
-        totalValue: saleItem.total,
-        reason: 'Venda',
-        user: input.username,
-        date,
-        time,
-        observation: `Venda #${saleNumber}`,
-        saleId: newSale.id,
-      };
-      await databaseService.save<Movement>('movements', movement);
-    }
+        const saleItem = input.items.find(i => i.productId === item.product.id)!;
+        const movement: Movement = {
+          id: `mov-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          productId: item.product.id,
+          productName: item.product.name,
+          productSku: item.product.sku,
+          type: 'SAIDA',
+          quantity: item.soldQty,
+          unitCostOrPrice: saleItem.unitPrice,
+          totalValue: saleItem.total,
+          reason: 'Venda',
+          user: input.username,
+          date,
+          time,
+          observation: `Venda #${saleNumber}`,
+          saleId: newSale.id,
+        };
+        await databaseService.save<Movement>('movements', movement);
+      })
+    );
 
     // Update Cash Register balances
     let cashPortion = 0;

@@ -92,6 +92,117 @@ export function isValidCNPJOrCPF(value: string | null | undefined): boolean {
 }
 
 /**
+ * Validates whether the document is an authentic CPF (11 digits) or CNPJ (14 digits),
+ * checking length, invalid repetitive sequences, and official modulo-11 verification digits.
+ */
+export function validateDocument(
+  value: string | null | undefined,
+  expectedType?: 'CPF' | 'CNPJ'
+): {
+  isValid: boolean;
+  type: 'CPF' | 'CNPJ' | 'INCOMPLETO' | 'INVALIDO';
+  message: string;
+} {
+  if (!value || !value.trim()) {
+    return {
+      isValid: false,
+      type: 'INCOMPLETO',
+      message: expectedType ? `${expectedType} é obrigatório` : 'CPF ou CNPJ é obrigatório',
+    };
+  }
+
+  const digits = value.replace(/\D/g, '');
+
+  if (digits.length === 0) {
+    return {
+      isValid: false,
+      type: 'INCOMPLETO',
+      message: expectedType ? `Digite o ${expectedType}` : 'Digite o CPF ou CNPJ',
+    };
+  }
+
+  // If explicitly expected as CPF or digits <= 11 and not explicitly CNPJ
+  if (expectedType === 'CPF' || (!expectedType && digits.length <= 11)) {
+    if (digits.length < 11) {
+      return {
+        isValid: false,
+        type: 'INCOMPLETO',
+        message: `CPF incompleto (${digits.length}/11 dígitos)`,
+      };
+    }
+
+    if (digits.length > 11) {
+      return {
+        isValid: false,
+        type: 'INVALIDO',
+        message: 'CPF deve conter exatamente 11 dígitos',
+      };
+    }
+
+    if (/^(\d)\1{10}$/.test(digits)) {
+      return {
+        isValid: false,
+        type: 'INVALIDO',
+        message: 'CPF inválido (dígitos repetidos)',
+      };
+    }
+
+    if (!isValidCPF(digits)) {
+      return {
+        isValid: false,
+        type: 'INVALIDO',
+        message: 'CPF não autenticado (dígitos verificadores incorretos)',
+      };
+    }
+
+    return {
+      isValid: true,
+      type: 'CPF',
+      message: 'CPF válido e autêntico',
+    };
+  }
+
+  // If explicitly expected as CNPJ or digits > 11
+  if (digits.length < 14) {
+    return {
+      isValid: false,
+      type: 'INCOMPLETO',
+      message: `CNPJ incompleto (${digits.length}/14 dígitos)`,
+    };
+  }
+
+  if (digits.length === 14) {
+    if (/^(\d)\1{13}$/.test(digits)) {
+      return {
+        isValid: false,
+        type: 'INVALIDO',
+        message: 'CNPJ inválido (dígitos repetidos)',
+      };
+    }
+
+    if (!isValidCNPJ(digits)) {
+      return {
+        isValid: false,
+        type: 'INVALIDO',
+        message: 'CNPJ não autenticado (dígitos verificadores incorretos)',
+      };
+    }
+
+    return {
+      isValid: true,
+      type: 'CNPJ',
+      message: 'CNPJ válido e autêntico',
+    };
+  }
+
+  return {
+    isValid: false,
+    type: 'INVALIDO',
+    message: 'Documento deve ter 11 dígitos (CPF) ou 14 dígitos (CNPJ)',
+  };
+}
+
+/**
  * Detailed validation feedback for CNPJ input fields
  */
 export function validateCNPJ(value: string | null | undefined): {
@@ -150,6 +261,17 @@ export function formatCNPJ(value: string): string {
     return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8)}`;
   }
   return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
+}
+
+/**
+ * Progressive formatter for CPF (000.000.000-00)
+ */
+export function formatCPF(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
+  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
 }
 
 /**

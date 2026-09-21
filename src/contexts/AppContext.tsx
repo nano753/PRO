@@ -63,6 +63,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const init = async () => {
       try {
+        // Fast in-memory pre-warming for instant 0ms access across all pages
+        await databaseService.prewarmCache();
         await reloadSettings();
 
         // Check active cash
